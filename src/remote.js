@@ -22,7 +22,7 @@ const API_BASE = 'https://api.github.com';
 const RAW_BASE = 'https://raw.githubusercontent.com';
 
 /** How long any single request may take. */
-const TIMEOUT_MS = 3000;
+const TIMEOUT_MS = 15000;
 
 const OWNER = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 const REPO = /^[A-Za-z0-9._-]+$/;

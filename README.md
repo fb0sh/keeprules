@@ -27,7 +27,7 @@ npx keeprules add user/repo#branch
 
 安装向导会：
 
-1. **从 GitHub 拉取规则**：默认是官方仓库 `fb0sh/keeprules` 的 `main` 分支，也可以用 `add user/repo` 指定任意仓库。CLI 用 GitHub Contents API 列出该仓库 `rules/` 目录下的 `.md` 文件，再逐个下载（每个请求 3 秒超时）。
+1. **从 GitHub 拉取规则**：默认是官方仓库 `fb0sh/keeprules` 的 `main` 分支，也可以用 `add user/repo` 指定任意仓库。CLI 用 GitHub Contents API 列出该仓库 `rules/` 目录下的 `.md` 文件，再逐个下载（每个请求 15 秒超时）。
 2. 列出所有可用规则，默认不选中。
 3. 询问是否把规则引用写入 `AGENTS.md`。
 4. 把选中的规则文件写入当前项目的 `rules/` 目录；已存在的文件用本次远程内容覆盖。
