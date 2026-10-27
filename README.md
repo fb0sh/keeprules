@@ -17,10 +17,11 @@ npx keeptidy
 ## 它会做什么
 
 1. 显示可安装的规则列表（名称 + 描述），用空格多选、回车确认。
-2. 二次确认后，把选中的规则文件复制到**当前工作目录**。
-3. 如果目标文件已存在，跳过且不覆盖，保留你的本地修改。
-4. 对声明了 `postInstall: ['gitignore']` 的规则，检查 `.gitignore` 是否忽略 `/tmp/`；没有则追加，已有规则不受影响。
-5. 安装过程显示 spinner，支持 `Esc` / `Ctrl+C` 取消。
+2. 对支持 AGENTS.md 引用的规则（目前是 KEEPTIDY），询问是否写入 AGENTS.md 引用区块。
+3. 二次确认后，把选中的规则文件复制到**当前工作目录**。
+4. 如果目标文件已存在，跳过且不覆盖，保留你的本地修改。
+5. 对声明了 `postInstall: ['gitignore']` 的规则，检查 `.gitignore` 是否忽略 `/tmp/`；没有则追加，已有规则不受影响。
+6. 安装过程显示 spinner，支持 `Esc` / `Ctrl+C` 取消。
 
 安装过程不会访问网络，也不会读取或修改系统临时目录。
 
@@ -36,6 +37,33 @@ npx keeptidy
 # keeptidy: 临时目录
 /tmp/
 ```
+
+### AGENTS.md 引用（可选）
+
+安装 KEEPTIDY 时会额外询问：
+
+> 是否在 AGENTS.md 中添加对 KEEPTIDY 的引用？
+
+默认选择 Yes，也可以拒绝。同意后会以标记区块追加以下内容：
+
+```markdown
+<!-- keeptidy:start -->
+## KEEPTIDY
+
+Follow the engineering hygiene and resource management rules defined in [KEEPTIDY.md](./KEEPTIDY.md).
+
+These rules are mandatory for all Coding Agents working in this repository.
+<!-- keeptidy:end -->
+```
+
+写入规则：
+
+- `AGENTS.md` 不存在：创建文件并写入区块。
+- 已存在但没有 `<!-- keeptidy:start -->`：在文件末尾追加，并与原内容之间保留一个空行。
+- 已存在标记区块：跳过，并提示「AGENTS.md 中已存在 KEEPTIDY 引用」。
+- 用户拒绝：跳过，不修改 `AGENTS.md`。
+
+用户已有的 `AGENTS.md` 内容不会被覆盖。
 
 ## 命令行选项
 
@@ -70,7 +98,7 @@ keeptidy/
   name: 'KEEPTIDY',
   description: '...',
   file: 'KEEPTIDY.md',
-  postInstall: ['gitignore'], // 可选
+  postInstall: ['gitignore', 'agents'], // 可选
 }
 ```
 
@@ -171,13 +199,14 @@ npm publish
 
 1. 在 `rules/` 下新增规则文件，例如 `rules/MY_RULE.md`。
 2. 在 `bin/keeptidy.js` 的 `RULES` 数组中添加对应条目。
-3. 如需额外配置，在 `postInstall` 中加入处理逻辑（当前支持 `gitignore`）。
+3. 如需额外配置，在 `postInstall` 中加入处理逻辑（当前支持 `gitignore` 和 `agents`）。
 4. 运行 `npm test` 和 `npm pack --dry-run`，确认新文件会被发布。
 
 ## 设计约定
 
 - 只复制，不覆盖：已有目标文件一律跳过，避免破坏用户内容。
 - `.gitignore` 只追加缺失的 `/tmp/` 规则，保留全部现有内容。
+- `AGENTS.md` 使用 `<!-- keeptidy:start -->` / `<!-- keeptidy:end -->` 标记区块，只追加一次，不覆盖原有内容。
 - 交互取消（`Esc` / `Ctrl+C`）返回退出码 `0`，不会产生任何文件。
 - 非 TTY 环境（如 CI）会直接报错退出，避免卡住。
 - 使用 `@clack/prompts` 0.11.x，以兼容 Node.js 18；更新的 1.x 要求 Node.js >= 20.12。

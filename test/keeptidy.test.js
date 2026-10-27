@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   RULES,
+  ensureAgentsReference,
   ensureGitignoreTmp,
   hasTmpIgnoreRule,
   installRule,
@@ -22,6 +23,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 const BIN = path.join(ROOT, 'bin', 'keeptidy.js');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+const AGENTS_BLOCK = [
+  '<!-- keeptidy:start -->',
+  '## KEEPTIDY',
+  '',
+  'Follow the engineering hygiene and resource management rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
+  '',
+  'These rules are mandatory for all Coding Agents working in this repository.',
+  '<!-- keeptidy:end -->',
+].join('\n') + '\n';
 
 /** Create a disposable project directory inside the repository tmp/. */
 function workspace() {
@@ -104,6 +115,76 @@ test('installRule throws when the packaged rule file is missing', () => {
       () => installRule({ ...RULES[0], file: 'MISSING.md', postInstall: [] }, dir),
       /规则文件缺失/,
     );
+  });
+});
+
+test('ensureAgentsReference creates AGENTS.md with the exact marked block', () => {
+  withWorkspace((dir) => {
+    const result = ensureAgentsReference(dir);
+
+    assert.equal(result.status, 'created');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
+  });
+});
+
+test('ensureAgentsReference appends to existing content with one blank line', () => {
+  withWorkspace((dir) => {
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# Existing AGENTS\n\nKeep me.\n');
+
+    const result = ensureAgentsReference(dir);
+
+    assert.equal(result.status, 'appended');
+    assert.equal(
+      readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      `# Existing AGENTS\n\nKeep me.\n\n${AGENTS_BLOCK}`,
+    );
+  });
+});
+
+test('ensureAgentsReference handles files without a trailing newline', () => {
+  withWorkspace((dir) => {
+    writeFileSync(path.join(dir, 'AGENTS.md'), 'Keep me.');
+
+    ensureAgentsReference(dir);
+
+    assert.equal(
+      readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      `Keep me.\n\n${AGENTS_BLOCK}`,
+    );
+  });
+});
+
+test('ensureAgentsReference is idempotent and preserves an existing block', () => {
+  withWorkspace((dir) => {
+    const original = `# Existing AGENTS\n\n${AGENTS_BLOCK}`;
+    writeFileSync(path.join(dir, 'AGENTS.md'), original);
+
+    const result = ensureAgentsReference(dir);
+
+    assert.equal(result.status, 'exists');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), original);
+  });
+});
+
+test('installRule writes AGENTS.md only when the agents option is enabled', () => {
+  withWorkspace((dir) => {
+    const withoutAgents = installRule(RULES[0], dir);
+    assert.equal(withoutAgents.agents, null);
+    assert.equal(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8').length > 0, true);
+
+    const withAgents = installRule(RULES[0], dir, { agents: true });
+    assert.equal(withAgents.agents.status, 'created');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
+  });
+});
+
+test('installRule does not duplicate the AGENTS.md block on a second run', () => {
+  withWorkspace((dir) => {
+    installRule(RULES[0], dir, { agents: true });
+    const result = installRule(RULES[0], dir, { agents: true });
+
+    assert.equal(result.agents.status, 'exists');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
   });
 });
 

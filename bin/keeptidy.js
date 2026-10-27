@@ -40,7 +40,9 @@ const packageJson = JSON.parse(
  * - description: short hint shown next to the name
  * - file:        file name inside the package's `rules/` directory, also the
  *                target file name in the user's project
- * - postInstall: optional extra setup steps ('gitignore' ensures `/tmp/`)
+ * - postInstall: optional extra setup steps
+ *                ('gitignore' ensures `/tmp/`, 'agents' enables the optional
+ *                AGENTS.md reference prompt)
  */
 export const RULES = [
   {
@@ -49,11 +51,23 @@ export const RULES = [
     description:
       'Coding Agent 工程卫生与资源管理规范（临时目录、Git 安全、进程清理、破坏性操作检查点等）',
     file: 'KEEPTIDY.md',
-    postInstall: ['gitignore'],
+    postInstall: ['gitignore', 'agents'],
   },
 ];
 
 const GITIGNORE_HEADER = '# keeptidy: 临时目录';
+
+const AGENTS_FILE = 'AGENTS.md';
+const AGENTS_MARKER_START = '<!-- keeptidy:start -->';
+const AGENTS_BLOCK = [
+  AGENTS_MARKER_START,
+  '## KEEPTIDY',
+  '',
+  'Follow the engineering hygiene and resource management rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
+  '',
+  'These rules are mandatory for all Coding Agents working in this repository.',
+  '<!-- keeptidy:end -->',
+].join('\n');
 
 /**
  * Check whether a .gitignore already ignores the project `tmp/` directory.
@@ -97,8 +111,49 @@ export function ensureGitignoreTmp(cwd) {
 }
 
 /**
+ * Ensure AGENTS.md references KEEPTIDY.md inside a marked block.
+ * Existing user content is preserved and an existing block is never duplicated.
+ *
+ * @returns {{status: 'created' | 'appended' | 'exists', path: string}}
+ */
+export function ensureAgentsReference(cwd) {
+  const agentsPath = path.join(cwd, AGENTS_FILE);
+  const fileExists = existsSync(agentsPath);
+  const content = fileExists ? readFileSync(agentsPath, 'utf8') : '';
+
+  if (content.includes(AGENTS_MARKER_START)) {
+    return { status: 'exists', path: agentsPath };
+  }
+
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const block = AGENTS_BLOCK.split('\n').join(eol) + eol;
+
+  if (content.length === 0) {
+    writeFileSync(agentsPath, block, 'utf8');
+    return { status: 'created', path: agentsPath };
+  }
+
+  // Separate the new block from existing content with exactly one blank line.
+  let separator;
+  if (content.endsWith(`${eol}${eol}`)) {
+    separator = '';
+  } else if (content.endsWith('\n')) {
+    separator = eol;
+  } else {
+    separator = `${eol}${eol}`;
+  }
+
+  writeFileSync(agentsPath, content + separator + block, 'utf8');
+  return { status: 'appended', path: agentsPath };
+}
+
+/**
  * Copy one rule file into `cwd` and run its post-install steps.
  * Existing target files are never overwritten.
+ *
+ * @param {object} rule rule definition from RULES
+ * @param {string} cwd target project directory
+ * @param {{agents?: boolean}} [options] optional post-install switches
  *
  * @returns {{
  *   rule: object,
@@ -106,9 +161,11 @@ export function ensureGitignoreTmp(cwd) {
  *   copied: boolean,
  *   skipped: boolean,
  *   gitignore: {status: string, path: string} | null,
+ *   agents: {status: string, path: string} | null,
  * }}
  */
-export function installRule(rule, cwd) {
+export function installRule(rule, cwd, options = {}) {
+  const { agents = false } = options;
   const source = path.join(RULES_DIR, rule.file);
   if (!existsSync(source)) {
     throw new Error(`规则文件缺失: ${source}`);
@@ -121,6 +178,7 @@ export function installRule(rule, cwd) {
     copied: false,
     skipped: false,
     gitignore: null,
+    agents: null,
   };
 
   if (existsSync(target)) {
@@ -130,8 +188,14 @@ export function installRule(rule, cwd) {
     result.copied = true;
   }
 
-  if (Array.isArray(rule.postInstall) && rule.postInstall.includes('gitignore')) {
-    result.gitignore = ensureGitignoreTmp(cwd);
+  if (Array.isArray(rule.postInstall)) {
+    if (rule.postInstall.includes('gitignore')) {
+      result.gitignore = ensureGitignoreTmp(cwd);
+    }
+
+    if (agents && rule.postInstall.includes('agents')) {
+      result.agents = ensureAgentsReference(cwd);
+    }
   }
 
   return result;
@@ -188,12 +252,34 @@ async function runAdd() {
     return 0;
   }
 
-  p.note(
-    selectedRules
-      .map((rule) => `${pc.green('•')} ${pc.bold(rule.name)} → ${rule.file}`)
-      .join('\n'),
-    '即将安装',
+  // Rules that can add a reference block to AGENTS.md (currently KEEPTIDY).
+  const agentsRules = selectedRules.filter((rule) =>
+    rule.postInstall?.includes('agents'),
   );
+  let addAgentsReference = false;
+
+  if (agentsRules.length > 0) {
+    const answer = await p.confirm({
+      message: '是否在 AGENTS.md 中添加对 KEEPTIDY 的引用？',
+      initialValue: true,
+    });
+
+    if (p.isCancel(answer)) {
+      p.cancel('安装已取消');
+      return 0;
+    }
+
+    addAgentsReference = answer;
+  }
+
+  const previewLines = selectedRules.map(
+    (rule) => `${pc.green('•')} ${pc.bold(rule.name)} → ${rule.file}`,
+  );
+  if (addAgentsReference) {
+    previewLines.push(`${pc.green('•')} ${pc.bold('AGENTS.md')} → KEEPTIDY 引用区块`);
+  }
+
+  p.note(previewLines.join('\n'), '即将安装');
 
   const confirmed = await p.confirm({
     message: `确认安装以上 ${selectedRules.length} 个规则？`,
@@ -213,7 +299,7 @@ async function runAdd() {
 
   for (const rule of selectedRules) {
     try {
-      results.push(installRule(rule, cwd));
+      results.push(installRule(rule, cwd, { agents: addAgentsReference }));
     } catch (error) {
       failures.push({ rule, error });
     }
@@ -242,6 +328,18 @@ async function runAdd() {
     } else if (result.gitignore?.status === 'exists') {
       p.log.info('.gitignore 已包含 /tmp/ 规则，无需修改');
     }
+
+    if (result.agents?.status === 'created') {
+      p.log.success('已创建 AGENTS.md 并添加 KEEPTIDY 引用');
+    } else if (result.agents?.status === 'appended') {
+      p.log.success('已向 AGENTS.md 追加 KEEPTIDY 引用');
+    } else if (result.agents?.status === 'exists') {
+      p.log.info('AGENTS.md 中已存在 KEEPTIDY 引用');
+    }
+  }
+
+  if (agentsRules.length > 0 && !addAgentsReference) {
+    p.log.info('已跳过 AGENTS.md 引用');
   }
 
   for (const { rule, error } of failures) {
