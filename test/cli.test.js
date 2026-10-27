@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +39,8 @@ test('--help prints usage and points at the rule source', () => {
   assert.match(result.stdout, /https:\/\/github\.com\/fb0sh\/keeprules/);
   assert.match(result.stdout, /fb0sh@outlook\.com/);
   assert.match(result.stdout, /需要联网/);
+  assert.match(result.stdout, /add user\/repo/);
+  assert.match(result.stdout, /第三方仓库/);
 });
 
 test('--version prints the package version', () => {
@@ -52,11 +60,76 @@ test('unknown commands and flags exit non-zero', () => {
   assert.match(flag.stderr, /未知选项/);
 });
 
+test('a failed remote fetch leaves local rule files untouched', async () => {
+  const { main } = await import('../bin/keeprules.js');
+  const originalCwd = process.cwd();
+  const originalFetch = globalThis.fetch;
+  const originalStdout = process.stdout.write;
+  const originalStderr = process.stderr.write;
+  const originalStdinTTY = process.stdin.isTTY;
+  const originalStdoutTTY = process.stdout.isTTY;
+  const originalSetRawMode = process.stdin.setRawMode;
+
+  mkdirSync(TMP_ROOT, { recursive: true });
+  const project = mkdtempSync(path.join(TMP_ROOT, 'fetch-failure-'));
+  mkdirSync(path.join(project, 'rules'));
+  writeFileSync(path.join(project, 'rules', 'RULE.md'), 'LOCAL COPY\n');
+
+  try {
+    process.chdir(project);
+    process.stdin.isTTY = true;
+    process.stdout.isTTY = true;
+    process.stdout.write = () => true;
+    process.stderr.write = () => true;
+    process.stdin.setRawMode = () => {};
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+
+    const code = await main(['add']);
+
+    assert.equal(code, 1);
+    assert.equal(
+      readFileSync(path.join(project, 'rules', 'RULE.md'), 'utf8'),
+      'LOCAL COPY\n',
+    );
+  } finally {
+    process.chdir(originalCwd);
+    process.stdin.isTTY = originalStdinTTY;
+    process.stdout.isTTY = originalStdoutTTY;
+    process.stdout.write = originalStdout;
+    process.stderr.write = originalStderr;
+    if (originalSetRawMode === undefined) delete process.stdin.setRawMode;
+    else process.stdin.setRawMode = originalSetRawMode;
+    globalThis.fetch = originalFetch;
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test('add refuses to start without a TTY', () => {
   const result = runCli(['add']);
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /需要交互式终端/);
+});
+
+test('add accepts a source argument and still requires a TTY', () => {
+  for (const source of ['user/repo', 'https://github.com/user/repo', 'user/repo#dev']) {
+    const result = runCli(['add', source]);
+
+    assert.equal(result.status, 1, source);
+    assert.match(result.stderr, /需要交互式终端/, source);
+  }
+});
+
+test('an invalid source is rejected before the TTY check', () => {
+  for (const source of ['https://gitlab.com/user/repo', 'user/repo/extra']) {
+    const result = runCli(['add', source]);
+
+    assert.equal(result.status, 1, source);
+    assert.match(result.stderr, /无法识别的规则来源|只支持 GitHub 仓库/, source);
+    assert.doesNotMatch(result.stderr, /需要交互式终端/, source);
+  }
 });
 
 test('--help and --version never touch the network', () => {
@@ -99,6 +172,18 @@ test('parseArgs maps argv to exactly one intent', async () => {
 
   assert.deepEqual(parseArgs([]), { kind: 'add' });
   assert.deepEqual(parseArgs(['add']), { kind: 'add' });
+  assert.deepEqual(parseArgs(['add', 'user/repo']), {
+    kind: 'add',
+    source: 'user/repo',
+  });
+  assert.deepEqual(parseArgs(['add', 'https://github.com/user/repo']), {
+    kind: 'add',
+    source: 'https://github.com/user/repo',
+  });
+  assert.deepEqual(parseArgs(['add', 'user/repo#dev']), {
+    kind: 'add',
+    source: 'user/repo#dev',
+  });
   assert.deepEqual(parseArgs(['-h']), { kind: 'help' });
   assert.deepEqual(parseArgs(['--help']), { kind: 'help' });
   assert.deepEqual(parseArgs(['help']), { kind: 'help' });
@@ -110,8 +195,8 @@ test('parseArgs maps argv to exactly one intent', async () => {
   assert.match(parseArgs(['nope']).message, /未知命令: nope/);
   assert.equal(parseArgs(['--nope']).kind, 'error');
   assert.match(parseArgs(['--nope']).message, /未知选项: --nope/);
-  assert.equal(parseArgs(['add', 'extra']).kind, 'error');
-  assert.match(parseArgs(['add', 'extra']).message, /多余的参数: extra/);
+  assert.equal(parseArgs(['add', 'user/repo', 'extra']).kind, 'error');
+  assert.match(parseArgs(['add', 'user/repo', 'extra']).message, /多余的参数: extra/);
 });
 
 test('help wins over an unknown flag, as before', async () => {
@@ -119,6 +204,7 @@ test('help wins over an unknown flag, as before', async () => {
 
   assert.deepEqual(parseArgs(['--help', '--nope']), { kind: 'help' });
   assert.deepEqual(parseArgs(['--version', 'nope']), { kind: 'version' });
+  assert.deepEqual(parseArgs(['add', 'user/repo', '--help']), { kind: 'help' });
 });
 
 test('positional help/version aliases work through the binary', () => {
@@ -129,7 +215,7 @@ test('positional help/version aliases work through the binary', () => {
 });
 
 test('extra positional arguments exit non-zero', () => {
-  const result = runCli(['add', 'extra']);
+  const result = runCli(['add', 'user/repo', 'extra']);
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /多余的参数/);

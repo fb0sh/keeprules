@@ -10,27 +10,34 @@
 在目标项目根目录执行：
 
 ```bash
+# 官方仓库
 npx keeprules add
-# 或
-npx keeprules
+
+# 任意第三方 GitHub 仓库（默认 main 分支）
+npx keeprules add user/repo
+npx keeprules add https://github.com/user/repo
+
+# 指定分支
+npx keeprules add user/repo#branch
 ```
 
-要求 Node.js >= 18，并需要在交互式终端中运行。
+不写 `add` 时（`npx keeprules`）等同于安装官方规则。要求 Node.js >= 18，并需要在交互式终端中运行。
 
 ## 使用方法
 
 安装向导会：
 
-1. **从 GitHub 拉取当前规则**（`main` 分支，3 秒超时）。
+1. **从 GitHub 拉取规则**：默认是官方仓库 `fb0sh/keeprules` 的 `main` 分支，也可以用 `add user/repo` 指定任意仓库。CLI 用 GitHub Contents API 列出该仓库 `rules/` 目录下的 `.md` 文件，再逐个下载（每个请求 3 秒超时）。
 2. 列出所有可用规则，默认不选中。
 3. 询问是否把规则引用写入 `AGENTS.md`。
-4. 把选中的规则文件写入当前项目的 `rules/` 目录。
+4. 把选中的规则文件写入当前项目的 `rules/` 目录；已存在的文件用本次远程内容覆盖。
 5. 必要时补充 `.gitignore` 中的 `/tmp/` 规则。
 
-已有的目标文件不会被覆盖。
+**远程规则始终优先。** 选中的规则文件最终一定与本次从仓库获取的内容一致；本地修改会被覆盖，未选中的规则文件保持不变。
 
 > **需要联网。** npm 包里不再包含规则文件，规则总是从仓库获取。
-> 拉取失败会直接报错退出，不会退回任何本地副本。
+> 拉取失败会直接报错退出，不会退回任何本地副本。私有仓库需要设置
+> `GITHUB_TOKEN`；公开仓库设置它也可以提高 GitHub API 的速率限制。
 
 `--help` 和 `--version` 不联网，可以离线使用。
 
@@ -62,11 +69,11 @@ project/
 
 | 规则 | 安装路径 | 说明 |
 | --- | --- | --- |
-| `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（复用优先、最小改动面、精简不越安全底线） |
-| `KEEPTIDY` | `rules/KEEPTIDY.md` | 工程卫生与资源管理（临时目录、Git 安全、进程清理、破坏性操作检查点） |
-| `KEEPSECURED` | `rules/KEEPSECURED.md` | 安全与敏感信息保护（凭证、日志脱敏、禁止外传、生产环境约束） |
+| `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（必要性判断、复用优先、最小可维护改动、安全与正确性边界） |
+| `KEEPTIDY` | `rules/KEEPTIDY.md` | 工程卫生与资源管理（项目级 tmp、任务隔离、资源回收、Git 安全、进程管理） |
+| `KEEPSECURED` | `rules/KEEPSECURED.md` | 安全与敏感信息保护（凭证与隐私、外部通信、权限边界、生产环境和高风险操作） |
 
-新增规则只需要往仓库 `rules/` 里加一个 `.md` 并更新 `rules/index.json`（`npm run rules:index`），**不需要发版**。
+新增规则只需要往仓库 `rules/` 里加一个 `.md` 文件，**不需要更新清单，也不需要发版**。
 
 选择 `KEEPTIDY` 时，会确保 `.gitignore` 包含：
 
@@ -75,7 +82,7 @@ project/
 /tmp/
 ```
 
-所有规则都可以选择是否在 `AGENTS.md` 中添加引用。引用使用 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 区块，只追加，不覆盖已有内容。区块内的链接指向 `rules/<文件>`：
+所有规则都可以选择是否在 `AGENTS.md` 中添加引用。引用使用 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 区块；首次运行时追加，之后只改写该区块，区块外的用户内容保持不变。区块内的链接指向 `rules/<文件>`：
 
 ```markdown
 <!-- keeprules:start -->
@@ -89,18 +96,41 @@ These rules are mandatory for all Coding Agents working in this repository.
 
 再次运行时会复用同一个区块并合并内容：之前已引用的规则会保留，指向旧路径（例如根目录的 `KEEPTIDY.md`）的链接会被修正为 `rules/KEEPTIDY.md`。
 
+### 从第三方仓库安装
+
+任何 GitHub 仓库都可以作为规则来源，默认分支是 `main`：
+
+```bash
+npx keeprules add user/repo
+npx keeprules add https://github.com/user/repo
+npx keeprules add user/repo#dev          # 指定分支
+npx keeprules add user/repo#release/1.0  # 分支名可以带斜杠
+```
+
+也可以直接传完整的 GitHub URL，或带 `.git` 后缀的仓库地址。私有仓库需要
+`GITHUB_TOKEN`：
+
+```bash
+GITHUB_TOKEN=ghp_xxx npx keeprules add user/private-repo
+```
+
+（PowerShell 中写成 `$env:GITHUB_TOKEN="ghp_xxx"; npx keeprules add user/private-repo`。）
+
 ## 命令行选项
 
 ```bash
-keeprules            # 进入交互式安装
-keeprules add        # 同上
-keeprules --help     # 显示帮助
-keeprules --version  # 显示版本
+keeprules                                  # 进入交互式安装（官方仓库）
+keeprules add                              # 同上
+keeprules add user/repo                    # 第三方仓库
+keeprules add https://github.com/user/repo # 完整的 GitHub URL
+keeprules add user/repo#branch             # 指定分支
+keeprules --help                           # 显示帮助
+keeprules --version                        # 显示版本
 ```
 
 ## 添加规则
 
-往仓库 `rules/` 里放一个 Markdown 文件，再跑 `npm run rules:index` 更新清单：
+官方仓库和第三方仓库使用同一套规则格式：往 `rules/` 目录里放 Markdown 文件即可，**不需要 `index.json`**。
 
 ```markdown
 ---
@@ -122,26 +152,60 @@ postInstall:
 
 没有 frontmatter 也能用：`id` / `name` 取文件名，`description` 取正文第一行。
 
+### 第三方仓库的最小规范
+
+```text
+your-repo/
+└── rules/
+    ├── MY_RULE.md
+    └── ANOTHER_RULE.md
+```
+
+1. 规则文件直接放在仓库的 `rules/` 目录下，不要放子目录。
+2. 每个文件以 `.md` 结尾，其他文件会被忽略。
+3. 推荐写 frontmatter；缺少 frontmatter 时用文件名作为 `id` / `name`，正文第一行作为 `description`。
+4. 默认拉取 `main` 分支；仓库使用其他默认分支时，用 `user/repo#branch` 指定。
+5. 不需要 `index.json`、构建步骤或发布流程。
+
 ### 规则是怎么分发的
 
 ```
-rules/index.json      ← 清单：HTTP 不能列目录，所以要有它
-rules/*.md            ← 规则正文
-        ↓  npx keeprules add 时从 raw.githubusercontent.com 拉取
-项目的 rules/*.md
+GitHub 仓库的 rules/*.md
+        ↓  GitHub Contents API 列出目录，再下载每个 .md
+项目的 rules/*.md（选中项始终采用远程内容）
 ```
 
 `rules/` 不随 npm 包发布，只在仓库里。所以改了规则立刻对所有人生效，不用 `npm publish`。
 
 规则文件名不能只靠大小写区分（`RULE.md` 与 `rule.md`）：macOS 和 Windows 的文件系统不区分大小写，两个规则会写成同一个文件，所以启动时直接报错。规则按码点排序，与系统 locale 无关。
 
-## 安装策略
+## 远程覆盖策略（Remote Always Wins）
 
-- 已有的规则文件永不覆盖，只报告跳过。
-- 跳过的规则仍会执行它声明的步骤：这些步骤维护的是项目级约定（`.gitignore`、`AGENTS.md`），和规则文件本身无关。
+每次 `add` 都重新从远程获取规则目录和规则内容，不做版本比较、内容合并或更新确认。对用户选中的规则：
+
+| 本地状态 | 行为 | 反馈 |
+| --- | --- | --- |
+| 文件不存在 | 新建 | `已安装` |
+| 内容不同（含未提交修改） | 用远程内容覆盖 | `已更新（远程覆盖）` |
+| 内容相同 | 跳过实际磁盘写入 | `已是最新` |
+
+覆盖写入前会先校验**全部选中规则**的远程内容、`postInstall` 名称和目标路径。任一校验失败时，本次不写入任何文件、不执行 `postInstall` 步骤，本地文件保持原状。
+
+规则文件通过 `rules/` 目录内的临时文件 + 原子替换写入：
+
+- 写入失败时保留原文件，并清理临时文件。
+- 目标规则文件或 `rules/` 目录是符号链接时拒绝写入。
+- 规则名必须是 `rules/` 下的普通文件名，不能包含路径分隔符，也不能使用 Windows 保留名（如 `CON.md`）或 `<>:"|?*` 等字符。
+- `AGENTS.md` 和 `.gitignore` 使用同一套安全写入：同目录临时文件 + 原子替换，写入前校验目标与父目录；符号链接目标会被拒绝；内容未变化时不写盘，并保留原有 BOM 与 LF/CRLF 换行。
+
+其他行为保持不变：
+
+- 内容一致的规则仍会执行它声明的步骤：这些步骤维护的是项目级约定（`.gitignore`、`AGENTS.md`），和规则文件本身无关。
+- `AGENTS.md` 只改写 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 区块，区块外的用户内容保持不变。
 - `gitignore` 自动执行；`agents` 会先问你。
-- 一条规则失败不影响其他规则。
-- 安装失败的规则不会被写进 `AGENTS.md`。
+- 写入阶段单条规则失败不影响其他规则继续写入；校验阶段任一规则失败则整批不写入。
+- 未成功写入的规则不会被写进 `AGENTS.md`。
+- 未选中的本地规则文件不受影响。
 - 三处取消（选规则 / 步骤确认 / 最终确认）返回同一个结果，只会提示一次「已取消」。
 
 顺带一提，`AGENTS.md` 里的引用块是**可自愈**的：重跑时保留之前引用过的规则，并把 0.1.x 写在根目录的旧链接（`./KEEPTIDY.md`）纠正成 `rules/KEEPTIDY.md`。
@@ -153,11 +217,11 @@ rules/*.md            ← 规则正文
 ```text
 bin/keeprules.js   argv → 意图、终端打印、退出码
 src/flow.js        流程：选规则 → 问步骤 → 确认 → 安装 → 报告
-src/install.js     写入策略：拷去哪、两个步骤怎么写、报什么
+src/install.js     写入策略：远程覆盖、原子替换、两个步骤怎么写、报什么
 src/rules.js       规则解析：frontmatter → 规则记录（不碰磁盘和网络）
 src/picker.js      选择器：文本宽度 + 状态机 + 终端适配
 src/prompts.js     把 clack 和选择器的「取消/拒绝/作答」统一
-src/remote.js      从 GitHub 拉规则清单和正文（3 秒超时，失败即退出）
+src/remote.js      解析来源，用 GitHub Contents API 列目录并下载规则
 ```
 
 依赖方向：`bin → flow → install`，`bin → prompts → picker`，`bin → remote → rules`。
@@ -168,7 +232,7 @@ src/remote.js      从 GitHub 拉规则清单和正文（3 秒超时，失败即
 | 想改什么 | 改哪里 |
 | --- | --- |
 | 规则装到哪个目录 | `src/install.js` 的 `RULES_DIR`（唯一一处） |
-| 规则从哪里拉 | `src/remote.js` 的 `BASE` |
+| 默认规则从哪里拉 | `src/remote.js` 的 `DEFAULT_SOURCE` / `DEFAULT_BRANCH` |
 | `AGENTS.md` 引用块的格式 | `src/install.js` 的 `renderBlock` / `renderSection` |
 | 加一个步骤 | `src/install.js` 的 `STEPS` 加一项 + 写一个函数 |
 | 打印样式 | `bin/keeprules.js` 的 `printer` |
@@ -182,7 +246,8 @@ src/remote.js      从 GitHub 拉规则清单和正文（3 秒超时，失败即
 - 追加 `.gitignore` 与 `AGENTS.md` 时沿用文件原有的换行（CRLF/LF）与 BOM。
 - 排序用码点比较，不依赖 locale 与 ICU 版本。
 - 不依赖 shell，不使用 `chmod`、`/dev/*`、`os.tmpdir()` 等平台特定行为。
-- 拉取只依赖 Node 18+ 自带的 `fetch`，没有额外 HTTP 依赖。
+- 拉取只依赖 Node 18+ 自带的 `fetch`，没有额外 HTTP 依赖；API 与 raw 下载共用同一个超时。
+- 原子替换只使用 Node 自带的 `rename`；符号链接检查使用 `lstat` / `realpath`，不依赖平台特定命令。
 
 CI 在 Ubuntu / macOS / Windows × Node 18/20/22 上运行 `npm test`。
 
@@ -207,6 +272,9 @@ npm link
 # 在测试项目中
 keeprules add
 
+# 从第三方仓库测试
+keeprules add user/repo#dev
+
 # 解除链接
 npm unlink -g keeprules
 ```
@@ -218,7 +286,7 @@ npm pack
 
 mkdir demo && cd demo
 npm init -y
-npm install ../keeprules-2.0.0.tgz
+npm install ../keeprules-3.1.0.tgz
 npx keeprules add
 ```
 

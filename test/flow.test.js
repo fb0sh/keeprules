@@ -232,9 +232,10 @@ test('cancelling or declining the final confirmation installs nothing', async ()
 
 // ── Failure reporting ───────────────────────────────────────────────────────
 
-test('a failure makes the run failed and still reports everything', async () => {
+test('a validation failure makes the run failed without writing any rule', async () => {
   withProject(async ({ project, rules }) => {
-    // One rule writes, the other arrives without content.
+    // One rule arrives without content. Validation happens before any write, so
+    // the healthy rule must stay local too.
     const broken = rules.map((rule) =>
       rule.id === 'beta' ? { ...rule, content: undefined } : rule,
     );
@@ -253,7 +254,10 @@ test('a failure makes the run failed and still reports everything', async () => 
     const [report] = out.calls.find(([name]) => name === 'report').slice(1);
     assert.equal(report.failures.length, 1);
     assert.equal(report.failures[0].subject, 'BETA');
-    assert.equal(existsSync(path.join(project, 'rules/ALPHA.md')), true);
+    assert.equal(report.outcomes.length, 0);
+    assert.equal(existsSync(path.join(project, 'rules/ALPHA.md')), false);
+    assert.equal(existsSync(path.join(project, '.gitignore')), false);
+    assert.equal(existsSync(path.join(project, 'AGENTS.md')), false);
   });
 });
 

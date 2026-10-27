@@ -1,6 +1,6 @@
 {
   "name": "keeprules",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "description": "Interactive installer for Coding Agent project rules, fetched from GitHub.",
   "repository": {
     "type": "git",
@@ -27,8 +27,7 @@
   "scripts": {
     "start": "node bin/keeprules.js",
     "test": "node --test",
-    "prepublishOnly": "npm run rules:index && npm test",
-    "rules:index": "node scripts/rules-index.js"
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "keeprules",

@@ -10,18 +10,24 @@ Coding Agent must follow. A rule's metadata comes from a small YAML frontmatter
 subset (`id`, `name`, `description`, `postInstall`); files without frontmatter
 still work, falling back to the file name and first Markdown line.
 
-Adding a rule means adding a file plus one line in `rules/index.json`. Nothing
-else changes, and no release is needed: rules are fetched at install time.
+Adding a rule means adding one file under `rules/`. Nothing else changes, and
+no release is needed: rules are fetched at install time.
 
 ## Rule source
 
-The repository's `main` branch, reached over HTTP at
-`raw.githubusercontent.com`. The npm package ships no rules, so an install
-always reflects the repository as it is right now — and an install with no
-network fails rather than silently using an older set.
+A GitHub repository with a `rules/` directory. The official repository
+(`fb0sh/keeprules`) is used when the user names no source; `add user/repo`,
+`add https://github.com/user/repo`, and `add user/repo#branch` select any other
+repository and ref. The default ref is `main`.
 
-A manifest (`rules/index.json`) lists the rule files, because HTTP cannot list a
-directory.
+The npm package ships no rules, so an install always reflects the repository as
+it is right now — and an install with no network fails rather than silently
+using an older set.
+
+The Contents API lists `rules/` (HTTP cannot list a directory over raw
+downloads); there is no manifest. A third-party repository is valid as soon as
+its `rules/` contains a `.md` file, and `GITHUB_TOKEN` can be supplied for rate
+limits and private repositories.
 
 ## Rule file
 
@@ -48,7 +54,7 @@ how its file is laid out.
 ## Level
 
 How loudly an outcome is reported: `success` for a write, `info` for "already
-satisfied", `warn` for "skipped". A step returns its own level with its
+current", `warn` for a non-fatal warning. A step returns its own level with its
 sentence, so the install module never interprets a step's vocabulary.
 
 ## Install flow
@@ -58,16 +64,28 @@ confirm, install, report. It lives in `src/flow.js` and takes its prompts and pr
 it runs without a terminal. It returns one result code: `installed`, `cancelled`, or
 `failed`.
 
+## Remote always wins
+
+The install policy: every selected rule ends up with the content fetched in this
+run. Local edits, older versions, and an existing file do not block the write;
+the only exception is identical content, which is not rewritten. There is no
+merge, version comparison, or update confirmation.
+
 ## Install
 
-Copying rule files into a target project and then running the steps the
-selection opted into. An install never overwrites an existing rule file.
+Copying the fetched rule files into a target project and then running the steps
+the selection opted into. All selected payloads are validated before the first
+write. Each changed or new rule is staged to a temp file inside `rules/` and
+atomically renamed over the target, so a failed write leaves the old file in
+place. `AGENTS.md` and `.gitignore` use the same atomic replace, preserve their
+existing BOM and line endings, and are not rewritten when their content is
+already current.
 
 ## Outcome
 
 The unit the install reports. One outcome per thing that happened: a rule
-copied, a rule skipped, a step wrote a file. It carries exactly two fields —
-`level` (`success` / `info` / `warn`) and
+created, a rule overwritten, a rule already current, a step wrote a file. It
+carries exactly two fields — `level` (`success` / `info` / `warn`) and
 `message` — so reporting is a loop rather than a decision tree.
 
 Two fields and no more, because a printer reads only those two. The caller never
@@ -75,17 +93,18 @@ needs to know a step's action vocabulary or which step produced a line.
 
 ## Failure
 
-Something that prevented an install from completing: a missing rule file, a
-name collision, a step that could not write. A failure carries `subject` (what
-to name in the log) and `message`. A failure never stops the remaining rules
-or steps from running.
+Something that prevented an install from completing: missing or empty content,
+an unknown step, an unsafe target, a symlink, or a write that could not
+complete. A failure carries `subject` (what to name in the log) and `message`.
+A validation failure stops the whole batch before any file write; a write
+failure never stops the remaining rules or steps.
 
-## Skip
+## Unchanged
 
-An existing rule file was left untouched. Because steps assert *project*
-invariants rather than a rule's own contents, a skipped rule's steps still run.
-The outcome is a `warn` and its message says so, so a skip can never be confused
-with a failure.
+A selected rule whose local content already equals the fetched content. Its file
+is not rewritten, so the run stays idempotent. Because steps assert *project*
+invariants rather than a rule's own contents, an unchanged rule's steps still
+run. The outcome is `info` with the message `已是最新`.
 
 ## Install target
 

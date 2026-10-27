@@ -81,7 +81,7 @@ test('rules are ordered by code point, the same on every host', () => {
 
 test('non-Markdown entries are ignored', () => {
   const rules = loadRules(
-    files(['index.json', '{"files":[]}'], ['REAL.md', '# Real']),
+    files(['README.md.bak', '# Backup'], ['REAL.md', '# Real']),
   );
 
   assert.deepEqual(rules.map((rule) => rule.file), ['REAL.md']);
