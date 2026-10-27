@@ -7,26 +7,22 @@
  *   npx keeprules
  *   npx keeprules add
  *
- * Rules are auto-registered from `rules/*.md` frontmatter and copied into the
- * current working directory.
+ * This module is the composition root: argv parsing, prompt wiring, and
+ * status printing. Rule discovery lives in src/rules.js and file-write policy
+ * lives in src/install.js.
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import {
-  CANCEL as RULE_SELECTION_CANCEL,
-  ruleMultiselect,
-} from '../src/prompts/rule-multiselect.js';
 import { loadRules } from '../src/rules.js';
+import { installSelection } from '../src/install.js';
+import {
+  CANCELLED,
+  promptSession,
+} from '../src/prompts/prompt-session.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,172 +35,10 @@ const packageJson = JSON.parse(
 const PROJECT_URL = 'https://github.com/fb0sh/keeprules';
 const AUTHOR_EMAIL = 'fb0sh@outlook.com';
 
-/**
- * Rule registry loaded from `rules/*.md` frontmatter at startup.
- * See src/rules.js for the supported frontmatter keys.
- */
-export const RULES = loadRules(RULES_DIR);
+/** Rules are auto-registered from `rules/*.md` frontmatter at startup. */
+const RULES = loadRules(RULES_DIR);
 
-const GITIGNORE_HEADER = '# keeprules: 临时目录';
-
-const AGENTS_FILE = 'AGENTS.md';
-const AGENTS_MARKER_START = '<!-- keeprules:start -->';
-const AGENTS_MARKER_END = '<!-- keeprules:end -->';
-
-/**
- * Build the marked AGENTS.md block for all selected rules that opt into
- * `postInstall: ['agents']`.
- */
-export function buildAgentsBlock(rules) {
-  const sections = rules.map((rule) =>
-    [
-      `## ${rule.name}`,
-      '',
-      `Follow the ${rule.name} rules defined in [${rule.file}](./${rule.file}).`,
-    ].join('\n'),
-  );
-
-  return [
-    AGENTS_MARKER_START,
-    ...sections.flatMap((section, index) =>
-      index === 0 ? [section] : ['', section],
-    ),
-    '',
-    'These rules are mandatory for all Coding Agents working in this repository.',
-    AGENTS_MARKER_END,
-  ].join('\n');
-}
-
-/**
- * Check whether a .gitignore already ignores the project `tmp/` directory.
- * Accepts common equivalent spellings: `tmp`, `tmp/`, `/tmp`, `/tmp/`.
- */
-export function hasTmpIgnoreRule(content) {
-  return content.split(/\r?\n/).some((rawLine) => {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#') || line.startsWith('!')) {
-      return false;
-    }
-
-    const normalized = line.replace(/^\/+/, '').replace(/\/+$/, '');
-    return normalized === 'tmp';
-  });
-}
-
-/**
- * Ensure `.gitignore` contains a `/tmp/` entry without touching existing
- * rules. Creates the file when it does not exist yet.
- *
- * @returns {{status: 'created' | 'updated' | 'exists', path: string}}
- */
-export function ensureGitignoreTmp(cwd) {
-  const gitignorePath = path.join(cwd, '.gitignore');
-  const fileExists = existsSync(gitignorePath);
-  const content = fileExists ? readFileSync(gitignorePath, 'utf8') : '';
-
-  if (hasTmpIgnoreRule(content)) {
-    return { status: 'exists', path: gitignorePath };
-  }
-
-  const eol = content.includes('\r\n') ? '\r\n' : '\n';
-  const separator =
-    content.length === 0 ? '' : content.endsWith('\n') ? eol : `${eol}${eol}`;
-  const block = [GITIGNORE_HEADER, '/tmp/'].join(eol) + eol;
-
-  writeFileSync(gitignorePath, content + separator + block, 'utf8');
-
-  return { status: fileExists ? 'updated' : 'created', path: gitignorePath };
-}
-
-/**
- * Ensure AGENTS.md references the selected rule files inside a marked block.
- * Existing user content is preserved and an existing block is never duplicated.
- *
- * @param {string} cwd target project directory
- * @param {object[]} rules rules that should be referenced
- * @returns {{status: 'created' | 'appended' | 'exists', path: string}}
- */
-export function ensureAgentsReference(cwd, rules) {
-  if (!Array.isArray(rules) || rules.length === 0) {
-    throw new Error('没有可写入 AGENTS.md 的规则');
-  }
-
-  const agentsPath = path.join(cwd, AGENTS_FILE);
-  const fileExists = existsSync(agentsPath);
-  const content = fileExists ? readFileSync(agentsPath, 'utf8') : '';
-
-  if (content.includes(AGENTS_MARKER_START)) {
-    return { status: 'exists', path: agentsPath };
-  }
-
-  const eol = content.includes('\r\n') ? '\r\n' : '\n';
-  const block = buildAgentsBlock(rules).split('\n').join(eol) + eol;
-
-  if (content.length === 0) {
-    writeFileSync(agentsPath, block, 'utf8');
-    return { status: 'created', path: agentsPath };
-  }
-
-  // Separate the new block from existing content with exactly one blank line.
-  let separator;
-  if (content.endsWith(`${eol}${eol}`)) {
-    separator = '';
-  } else if (content.endsWith('\n')) {
-    separator = eol;
-  } else {
-    separator = `${eol}${eol}`;
-  }
-
-  writeFileSync(agentsPath, content + separator + block, 'utf8');
-  return { status: 'appended', path: agentsPath };
-}
-
-/**
- * Copy one rule file into `cwd` and run its per-rule post-install steps.
- * Existing target files are never overwritten. The collective AGENTS.md step
- * is handled separately because it may reference several selected rules.
- *
- * @param {object} rule rule definition loaded from rules/
- * @param {string} cwd target project directory
- *
- * @returns {{
- *   rule: object,
- *   target: string,
- *   copied: boolean,
- *   skipped: boolean,
- *   gitignore: {status: string, path: string} | null,
- * }}
- */
-export function installRule(rule, cwd) {
-  const source = path.join(RULES_DIR, rule.file);
-  if (!existsSync(source)) {
-    throw new Error(`规则文件缺失: ${source}`);
-  }
-
-  const target = path.join(cwd, rule.file);
-  const result = {
-    rule,
-    target,
-    copied: false,
-    skipped: false,
-    gitignore: null,
-  };
-
-  if (existsSync(target)) {
-    result.skipped = true;
-  } else {
-    copyFileSync(source, target);
-    result.copied = true;
-  }
-
-  if (Array.isArray(rule.postInstall) && rule.postInstall.includes('gitignore')) {
-    result.gitignore = ensureGitignoreTmp(cwd);
-  }
-
-  return result;
-}
-
-export function printHelp() {
+function printHelp() {
   const usage = [
     `${pc.bold('keeprules')} ${pc.dim(`v${packageJson.version}`)}`,
     `${pc.dim('仓库')}: ${PROJECT_URL}`,
@@ -239,7 +73,7 @@ async function runAdd() {
   );
   p.log.info(`安装目标: ${pc.cyan(cwd)}`);
 
-  const selection = await ruleMultiselect({
+  const selection = await promptSession.selectRules({
     message: '选择要安装的规则',
     items: RULES.map((rule) => ({
       value: rule.id,
@@ -251,8 +85,8 @@ async function runAdd() {
     required: true,
   });
 
-  if (selection === RULE_SELECTION_CANCEL) {
-    // The custom prompt renders its own cancel state.
+  if (selection === CANCELLED) {
+    // The custom picker renders its own cancel state.
     return 0;
   }
 
@@ -270,12 +104,12 @@ async function runAdd() {
   let addAgentsReference = false;
 
   if (agentsRules.length > 0) {
-    const answer = await p.confirm({
+    const answer = await promptSession.confirm({
       message: '是否在 AGENTS.md 中添加引用？',
       initialValue: true,
     });
 
-    if (p.isCancel(answer)) {
+    if (answer === CANCELLED) {
       p.cancel('安装已取消');
       return 0;
     }
@@ -295,12 +129,12 @@ async function runAdd() {
     p.log.message(pc.dim('并在 AGENTS.md 中添加引用'));
   }
 
-  const confirmed = await p.confirm({
+  const confirmed = await promptSession.confirm({
     message: `确认安装以上 ${selectedRules.length} 个规则？`,
     initialValue: true,
   });
 
-  if (p.isCancel(confirmed) || !confirmed) {
+  if (confirmed === CANCELLED || !confirmed) {
     p.cancel('安装已取消');
     return 0;
   }
@@ -308,34 +142,18 @@ async function runAdd() {
   const spinner = p.spinner();
   spinner.start('正在安装规则...');
 
-  const results = [];
-  const failures = [];
-  let agentsResult = null;
-
-  for (const rule of selectedRules) {
-    try {
-      results.push(installRule(rule, cwd));
-    } catch (error) {
-      failures.push({ rule, error });
-    }
-  }
-
-  // The AGENTS.md block is written once so multiple selected rules can be
-  // referenced in a single marked section.
-  if (addAgentsReference && agentsRules.length > 0) {
-    try {
-      agentsResult = ensureAgentsReference(cwd, agentsRules);
-    } catch (error) {
-      failures.push({ rule: { name: 'AGENTS.md' }, error });
-    }
-  }
+  const report = installSelection({
+    rules: selectedRules,
+    cwd,
+    collective: { agents: addAgentsReference },
+  });
 
   spinner.stop(
-    failures.length > 0 ? '安装未完全成功' : '规则安装完成',
-    failures.length > 0 ? 1 : 0,
+    report.failures.length > 0 ? '安装未完全成功' : '规则安装完成',
+    report.failures.length > 0 ? 1 : 0,
   );
 
-  for (const result of results) {
+  for (const result of report.results) {
     if (result.copied) {
       p.log.success(
         `${pc.bold(result.rule.name)} → ${pc.cyan(result.rule.file)}`,
@@ -346,15 +164,17 @@ async function runAdd() {
       );
     }
 
-    if (result.gitignore?.status === 'created') {
+    const gitignore = result.postInstall.gitignore;
+    if (gitignore?.status === 'created') {
       p.log.success('已创建 .gitignore 并添加 /tmp/ 规则');
-    } else if (result.gitignore?.status === 'updated') {
+    } else if (gitignore?.status === 'updated') {
       p.log.success('已向 .gitignore 补充 /tmp/ 规则');
-    } else if (result.gitignore?.status === 'exists') {
+    } else if (gitignore?.status === 'exists') {
       p.log.info('.gitignore 已包含 /tmp/ 规则，无需修改');
     }
   }
 
+  const agentsResult = report.collective.agents;
   if (agentsResult?.status === 'created') {
     p.log.success('已创建 AGENTS.md 并添加规则引用');
   } else if (agentsResult?.status === 'appended') {
@@ -367,11 +187,11 @@ async function runAdd() {
     p.log.info('已跳过 AGENTS.md 引用');
   }
 
-  for (const { rule, error } of failures) {
+  for (const { rule, error } of report.failures) {
     p.log.error(`${pc.bold(rule.name)} 安装失败: ${error.message}`);
   }
 
-  if (failures.length > 0) {
+  if (report.failures.length > 0) {
     p.outro(pc.red('部分规则安装失败，请根据上方日志修复后重试。'));
     return 1;
   }
@@ -391,10 +211,15 @@ async function runAdd() {
 export async function main(argv = process.argv.slice(2)) {
   const positional = argv.filter((arg) => !arg.startsWith('-'));
   const unknownFlag = argv.find(
-    (arg) => arg.startsWith('-') && !['-h', '--help', '-v', '--version'].includes(arg),
+    (arg) =>
+      arg.startsWith('-') && !['-h', '--help', '-v', '--version'].includes(arg),
   );
 
-  if (argv.includes('-h') || argv.includes('--help') || positional[0] === 'help') {
+  if (
+    argv.includes('-h') ||
+    argv.includes('--help') ||
+    positional[0] === 'help'
+  ) {
     printHelp();
     return 0;
   }

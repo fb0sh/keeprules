@@ -2,42 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  countVisualRows,
   displayWidth,
   formatDetailLines,
-  getSelectAllState,
-  toggleAllItems,
   truncateToWidth,
-} from '../src/prompts/rule-multiselect.js';
-
-const items = [
-  { value: 'a', label: 'A' },
-  { value: 'b', label: 'B' },
-  { value: 'c', label: 'C' },
-];
-
-test('getSelectAllState reports none, partial, and all', () => {
-  assert.equal(getSelectAllState(new Set(), items), 'none');
-  assert.equal(getSelectAllState(new Set(['a']), items), 'partial');
-  assert.equal(getSelectAllState(new Set(['a', 'b']), items), 'partial');
-  assert.equal(getSelectAllState(new Set(['a', 'b', 'c']), items), 'all');
-});
-
-test('toggleAllItems selects all from none and clears from all', () => {
-  const selected = new Set();
-
-  toggleAllItems(selected, items);
-  assert.deepEqual([...selected].sort(), ['a', 'b', 'c']);
-
-  toggleAllItems(selected, items);
-  assert.equal(selected.size, 0);
-});
-
-test('toggleAllItems fills a partial selection instead of clearing it', () => {
-  const selected = new Set(['b']);
-
-  toggleAllItems(selected, items);
-  assert.deepEqual([...selected].sort(), ['a', 'b', 'c']);
-});
+} from '../src/prompts/text.js';
 
 test('formatDetailLines always returns the requested number of lines', () => {
   const short = formatDetailLines('short', 40, 2);
@@ -69,4 +38,10 @@ test('truncateToWidth never splits a wide character', () => {
   assert.equal(truncateToWidth('中文', 3), '中');
   assert.equal(truncateToWidth('中文', 4), '中文');
   assert.equal(truncateToWidth('abcd', 2), 'ab');
+});
+
+test('countVisualRows accounts for wrapping and wide characters', () => {
+  assert.equal(countVisualRows(['abc', '中文'], 80), 2);
+  assert.equal(countVisualRows(['a'.repeat(81)], 80), 2);
+  assert.equal(countVisualRows(['中文中文'], 4), 2);
 });

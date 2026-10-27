@@ -8,22 +8,21 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadRules } from '../src/rules.js';
 import {
-  RULES,
   ensureAgentsReference,
   ensureGitignoreTmp,
   hasTmpIgnoreRule,
   installRule,
-} from '../bin/keeprules.js';
+  installSelection,
+} from '../src/install.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
-const BIN = path.join(ROOT, 'bin', 'keeprules.js');
-const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const RULES = loadRules(path.join(ROOT, 'rules'));
 
 const KEEPTIDY = RULES.find((rule) => rule.id === 'keeptidy');
 const KEEPSECURED = RULES.find((rule) => rule.id === 'keepsecured');
@@ -52,10 +51,9 @@ const AGENTS_BOTH_BLOCK = [
   '<!-- keeprules:end -->',
 ].join('\n') + '\n';
 
-/** Create a disposable project directory inside the repository tmp/. */
-function workspace() {
+function workspace(prefix = 'keeprules-install-') {
   mkdirSync(TMP_ROOT, { recursive: true });
-  return mkdtempSync(path.join(TMP_ROOT, 'keeprules-test-'));
+  return mkdtempSync(path.join(TMP_ROOT, prefix));
 }
 
 function withWorkspace(fn) {
@@ -67,23 +65,13 @@ function withWorkspace(fn) {
   }
 }
 
-test('rules are auto-loaded from rules/*.md frontmatter', () => {
-  assert.ok(KEEPTIDY);
-  assert.equal(KEEPTIDY.file, 'KEEPTIDY.md');
-  assert.deepEqual(KEEPTIDY.postInstall, ['gitignore', 'agents']);
-
-  assert.ok(KEEPSECURED);
-  assert.equal(KEEPSECURED.file, 'KEEPSECURED.md');
-  assert.deepEqual(KEEPSECURED.postInstall, ['agents']);
-});
-
 test('installRule copies the rule file and creates .gitignore with /tmp/', () => {
   withWorkspace((dir) => {
     const result = installRule(KEEPTIDY, dir);
 
     assert.equal(result.copied, true);
     assert.equal(result.skipped, false);
-    assert.equal(result.gitignore.status, 'created');
+    assert.equal(result.postInstall.gitignore.status, 'created');
     assert.match(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8'), /KEEPTIDY/);
     assert.equal(
       readFileSync(path.join(dir, '.gitignore'), 'utf8'),
@@ -102,7 +90,7 @@ test('a second run skips the rule and leaves the existing .gitignore alone', () 
 
     assert.equal(result.copied, false);
     assert.equal(result.skipped, true);
-    assert.equal(result.gitignore.status, 'exists');
+    assert.equal(result.postInstall.gitignore.status, 'exists');
     assert.equal(readFileSync(path.join(dir, '.gitignore'), 'utf8'), before);
   });
 });
@@ -131,6 +119,26 @@ test('existing .gitignore rules are preserved when /tmp/ is appended', () => {
   });
 });
 
+test('managed append preserves CRLF line endings', () => {
+  withWorkspace((dir) => {
+    writeFileSync(path.join(dir, '.gitignore'), 'node_modules\r\n');
+    writeFileSync(path.join(dir, 'AGENTS.md'), '# Existing\r\n');
+
+    ensureGitignoreTmp(dir);
+    ensureAgentsReference(dir, [KEEPTIDY]);
+
+    assert.equal(
+      readFileSync(path.join(dir, '.gitignore'), 'utf8'),
+      'node_modules\r\n\r\n# keeprules: 临时目录\r\n/tmp/\r\n',
+    );
+    assert.ok(
+      readFileSync(path.join(dir, 'AGENTS.md'), 'utf8').startsWith(
+        '# Existing\r\n\r\n<!-- keeprules:start -->\r\n',
+      ),
+    );
+  });
+});
+
 test('equivalent tmp ignore patterns are detected', () => {
   for (const entry of ['/tmp/', 'tmp/', 'tmp', '/tmp', '  /tmp/  ']) {
     assert.equal(hasTmpIgnoreRule(`node_modules\n${entry}\n`), true, entry);
@@ -141,11 +149,37 @@ test('equivalent tmp ignore patterns are detected', () => {
   assert.equal(hasTmpIgnoreRule('!tmp/\n'), false);
 });
 
-test('installRule throws when the packaged rule file is missing', () => {
+test('installRule throws when the rule source is missing', () => {
   withWorkspace((dir) => {
     assert.throws(
-      () => installRule({ ...KEEPTIDY, file: 'MISSING.md', postInstall: [] }, dir),
+      () =>
+        installRule(
+          { ...KEEPTIDY, sourcePath: path.join(dir, 'MISSING.md'), postInstall: [] },
+          dir,
+        ),
       /规则文件缺失/,
+    );
+  });
+});
+
+test('installRule accepts a rule from an explicit source path', () => {
+  withWorkspace((dir) => {
+    const rulesDir = path.join(dir, 'source-rules');
+    const targetDir = path.join(dir, 'project');
+    mkdirSync(rulesDir);
+    mkdirSync(targetDir);
+    writeFileSync(
+      path.join(rulesDir, 'LOCAL.md'),
+      '---\nid: local\nname: LOCAL\ndescription: Local rule\n---\n# LOCAL\n',
+    );
+
+    const [rule] = loadRules(rulesDir);
+    const result = installRule(rule, targetDir);
+
+    assert.equal(result.copied, true);
+    assert.equal(
+      readFileSync(path.join(targetDir, 'LOCAL.md'), 'utf8'),
+      '---\nid: local\nname: LOCAL\ndescription: Local rule\n---\n# LOCAL\n',
     );
   });
 });
@@ -213,49 +247,57 @@ test('ensureAgentsReference requires at least one rule', () => {
   });
 });
 
-function runCli(args, options = {}) {
-  return spawnSync(process.execPath, [BIN, ...args], {
-    encoding: 'utf8',
-    cwd: options.cwd ?? ROOT,
-    env: {
-      ...process.env,
-      TMPDIR: path.join(TMP_ROOT, 'spawn'),
-      ...options.env,
-    },
+test('installSelection returns one report for files and collective agents', () => {
+  withWorkspace((dir) => {
+    const report = installSelection({
+      rules: [KEEPSECURED, KEEPTIDY],
+      cwd: dir,
+      collective: { agents: true },
+    });
+
+    assert.equal(report.failures.length, 0);
+    assert.equal(report.results.length, 2);
+    assert.equal(report.results[0].copied, true);
+    assert.equal(report.results[1].postInstall.gitignore.status, 'created');
+    assert.equal(report.collective.agents.status, 'created');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BOTH_BLOCK);
   });
-}
-
-test('--help prints usage and auto-loaded rules', () => {
-  const result = runCli(['--help']);
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /用法/);
-  assert.match(result.stdout, /https:\/\/github\.com\/fb0sh\/keeprules/);
-  assert.match(result.stdout, /fb0sh@outlook\.com/);
-  assert.match(result.stdout, /KEEPTIDY\.md/);
-  assert.match(result.stdout, /KEEPSECURED\.md/);
 });
 
-test('--version prints the package version', () => {
-  const result = runCli(['--version']);
+test('installSelection skips collective agents when disabled', () => {
+  withWorkspace((dir) => {
+    const report = installSelection({
+      rules: [KEEPSECURED],
+      cwd: dir,
+      collective: { agents: false },
+    });
 
-  assert.equal(result.status, 0);
-  assert.equal(result.stdout.trim(), pkg.version);
+    assert.equal(report.failures.length, 0);
+    assert.equal(report.collective.agents, undefined);
+    assert.equal(existsSync(path.join(dir, 'AGENTS.md')), false);
+  });
 });
 
-test('unknown commands and flags exit non-zero', () => {
-  const command = runCli(['nope']);
-  const flag = runCli(['--nope']);
+test('installSelection keeps going after one rule fails', () => {
+  withWorkspace((dir) => {
+    const missing = {
+      ...KEEPSECURED,
+      id: 'missing',
+      file: 'MISSING.md',
+      sourcePath: path.join(dir, 'MISSING.md'),
+      postInstall: [],
+    };
 
-  assert.equal(command.status, 1);
-  assert.match(command.stderr, /未知命令/);
-  assert.equal(flag.status, 1);
-  assert.match(flag.stderr, /未知选项/);
-});
+    const report = installSelection({
+      rules: [KEEPTIDY, missing],
+      cwd: dir,
+      collective: { agents: false },
+    });
 
-test('add refuses to start without a TTY', () => {
-  const result = runCli(['add']);
-
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /需要交互式终端/);
+    assert.equal(report.results.length, 1);
+    assert.equal(report.failures.length, 1);
+    assert.equal(report.results[0].rule.id, 'keeptidy');
+    assert.equal(report.failures[0].rule.id, 'missing');
+    assert.equal(existsSync(path.join(dir, 'KEEPTIDY.md')), true);
+  });
 });

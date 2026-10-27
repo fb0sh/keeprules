@@ -97,6 +97,7 @@ test('loadRules auto-registers Markdown files and falls back without frontmatter
       name: 'A_RULE',
       description: 'Alpha title',
       file: 'A_RULE.md',
+      sourcePath: path.join(dir, 'A_RULE.md'),
       postInstall: [],
     });
 
@@ -105,6 +106,7 @@ test('loadRules auto-registers Markdown files and falls back without frontmatter
       name: 'BETA',
       description: 'Beta description',
       file: 'B_RULE.md',
+      sourcePath: path.join(dir, 'B_RULE.md'),
       postInstall: ['agents'],
     });
   });
@@ -117,5 +119,27 @@ test('loadRules rejects duplicate rule ids with a clear error', () => {
     writeFileSync(path.join(dir, 'TWO.md'), frontmatter);
 
     assert.throws(() => loadRules(dir), /规则 id 重复: "duplicate"/);
+  });
+});
+
+test('loadRules rejects unknown postInstall steps at discovery time', () => {
+  withRulesDir((dir) => {
+    writeFileSync(
+      path.join(dir, 'BROKEN.md'),
+      [
+        '---',
+        'id: broken',
+        'name: BROKEN',
+        'postInstall:',
+        '  - gitignroe',
+        '---',
+        '# BROKEN',
+      ].join('\n'),
+    );
+
+    assert.throws(
+      () => loadRules(dir),
+      /不支持的 postInstall 步骤: "gitignroe"/,
+    );
   });
 });

@@ -7,6 +7,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { assertSupportedPostInstall } from './rule-capabilities.js';
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
@@ -133,7 +134,7 @@ function asStringArray(value) {
  * basename, and description falls back to the first Markdown line.
  *
  * @param {string} rulesDir absolute path to the rules directory
- * @returns {{id: string, name: string, description: string, file: string, postInstall: string[]}[]}
+ * @returns {{id: string, name: string, description: string, file: string, sourcePath: string, postInstall: string[]}[]}
  */
 export function loadRules(rulesDir) {
   const fileNames = readdirSync(rulesDir, { withFileTypes: true })
@@ -150,12 +151,16 @@ export function loadRules(rulesDir) {
   const seenIds = new Map();
 
   for (const fileName of fileNames) {
-    const content = readFileSync(path.join(rulesDir, fileName), 'utf8');
+    const sourcePath = path.join(rulesDir, fileName);
+    const content = readFileSync(sourcePath, 'utf8');
     const { data, body } = parseFrontmatter(content);
     const baseName = path.basename(fileName, path.extname(fileName));
     const id = asString(data.id) || baseName;
     const name = asString(data.name) || baseName;
     const description = asString(data.description) || fallbackDescription(body);
+    const postInstall = asStringArray(data.postInstall);
+
+    assertSupportedPostInstall(postInstall, fileName);
 
     if (seenIds.has(id)) {
       throw new Error(
@@ -169,7 +174,8 @@ export function loadRules(rulesDir) {
       name,
       description,
       file: fileName,
-      postInstall: asStringArray(data.postInstall),
+      sourcePath,
+      postInstall,
     });
   }
 

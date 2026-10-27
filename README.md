@@ -65,7 +65,7 @@ postInstall:
 - `id`：稳定标识，必须在所有规则中唯一
 - `name`：选择界面中显示的名称
 - `description`：高亮该规则时显示在列表下方的说明
-- `postInstall`：可选安装步骤，当前支持 `gitignore` 和 `agents`
+- `postInstall`：可选安装步骤，当前支持 `gitignore` 和 `agents`；未知步骤会在加载时报错
 
 如果文件没有 frontmatter，会自动降级：
 
@@ -145,18 +145,26 @@ keeprules --version  # 显示版本
 ```text
 keeprules/
 ├── bin/
-│   └── keeprules.js                # CLI 入口（shebang + 安装流程）
+│   └── keeprules.js                # CLI 入口（argv + prompt 编排 + 状态输出）
 ├── src/
-│   ├── rules.js                 # rules/*.md 扫描与 frontmatter 解析
+│   ├── rules.js                    # rules/*.md 扫描与 frontmatter 解析
+│   ├── rule-capabilities.js        # postInstall 词汇与作用域
+│   ├── install.js                  # 安装策略、managed append、安装报告
 │   └── prompts/
-│       └── rule-multiselect.js  # 轻量自定义规则多选界面
+│       ├── text.js                 # 终端宽度、换行、行数计算
+│       ├── picker.js               # 选择状态机与纯 frame 渲染
+│       ├── rule-multiselect.js     # readline 终端适配器
+│       └── prompt-session.js       # 统一 prompt 取消语义
 ├── rules/
-│   ├── KEEPSECURED.md           # 随包发布的安全规则
-│   └── KEEPTIDY.md              # 随包发布的工程卫生规则
+│   ├── KEEPSECURED.md              # 随包发布的安全规则
+│   └── KEEPTIDY.md                 # 随包发布的工程卫生规则
 ├── test/
-│   ├── keeprules.test.js           # 安装逻辑与 CLI 行为测试
-│   ├── rules.test.js            # 自动注册与 frontmatter 测试
-│   └── rule-multiselect.test.js # 多选界面辅助逻辑测试
+│   ├── cli.test.js                 # CLI 参数、help、version、非 TTY
+│   ├── install.test.js             # 安装策略与 managed append
+│   ├── rules.test.js               # 自动注册、解析、postInstall 校验
+│   ├── picker.test.js              # 选择状态机与 frame 组成
+│   ├── prompt-text.test.js         # 文本测量与换行
+│   └── prompt-session.test.js      # 取消结果统一
 ├── package.json
 ├── README.md
 ├── LICENSE
