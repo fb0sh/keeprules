@@ -1,3 +1,12 @@
+---
+id: keeptidy
+name: KEEPTIDY
+description: Coding Agent 工程卫生与资源管理规范（临时目录、Git 安全、进程清理、破坏性操作检查点等）
+postInstall:
+  - gitignore
+  - agents
+---
+
 # KEEPTIDY.md
 
 # Coding Agent Engineering & Resource Hygiene Rules

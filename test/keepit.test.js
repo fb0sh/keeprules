@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -17,27 +18,44 @@ import {
   ensureGitignoreTmp,
   hasTmpIgnoreRule,
   installRule,
-} from '../bin/keeptidy.js';
+} from '../bin/keepit.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
-const BIN = path.join(ROOT, 'bin', 'keeptidy.js');
+const BIN = path.join(ROOT, 'bin', 'keepit.js');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
-const AGENTS_BLOCK = [
-  '<!-- keeptidy:start -->',
+const KEEPTIDY = RULES.find((rule) => rule.id === 'keeptidy');
+const KEEPSECURED = RULES.find((rule) => rule.id === 'keepsecured');
+
+const AGENTS_KEEPTIDY_BLOCK = [
+  '<!-- keepit:start -->',
   '## KEEPTIDY',
   '',
-  'Follow the engineering hygiene and resource management rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
+  'Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
   '',
   'These rules are mandatory for all Coding Agents working in this repository.',
-  '<!-- keeptidy:end -->',
+  '<!-- keepit:end -->',
+].join('\n') + '\n';
+
+const AGENTS_BOTH_BLOCK = [
+  '<!-- keepit:start -->',
+  '## KEEPSECURED',
+  '',
+  'Follow the KEEPSECURED rules defined in [KEEPSECURED.md](./KEEPSECURED.md).',
+  '',
+  '## KEEPTIDY',
+  '',
+  'Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
+  '',
+  'These rules are mandatory for all Coding Agents working in this repository.',
+  '<!-- keepit:end -->',
 ].join('\n') + '\n';
 
 /** Create a disposable project directory inside the repository tmp/. */
 function workspace() {
   mkdirSync(TMP_ROOT, { recursive: true });
-  return mkdtempSync(path.join(TMP_ROOT, 'keeptidy-test-'));
+  return mkdtempSync(path.join(TMP_ROOT, 'keepit-test-'));
 }
 
 function withWorkspace(fn) {
@@ -49,24 +67,38 @@ function withWorkspace(fn) {
   }
 }
 
+test('rules are auto-loaded from rules/*.md frontmatter', () => {
+  assert.ok(KEEPTIDY);
+  assert.equal(KEEPTIDY.file, 'KEEPTIDY.md');
+  assert.deepEqual(KEEPTIDY.postInstall, ['gitignore', 'agents']);
+
+  assert.ok(KEEPSECURED);
+  assert.equal(KEEPSECURED.file, 'KEEPSECURED.md');
+  assert.deepEqual(KEEPSECURED.postInstall, ['agents']);
+});
+
 test('installRule copies the rule file and creates .gitignore with /tmp/', () => {
   withWorkspace((dir) => {
-    const result = installRule(RULES[0], dir);
+    const result = installRule(KEEPTIDY, dir);
 
     assert.equal(result.copied, true);
     assert.equal(result.skipped, false);
     assert.equal(result.gitignore.status, 'created');
     assert.match(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8'), /KEEPTIDY/);
-    assert.equal(readFileSync(path.join(dir, '.gitignore'), 'utf8'), '# keeptidy: 临时目录\n/tmp/\n');
+    assert.equal(
+      readFileSync(path.join(dir, '.gitignore'), 'utf8'),
+      '# keepit: 临时目录\n/tmp/\n',
+    );
+    assert.equal(existsSync(path.join(dir, 'AGENTS.md')), false);
   });
 });
 
 test('a second run skips the rule and leaves the existing .gitignore alone', () => {
   withWorkspace((dir) => {
-    installRule(RULES[0], dir);
+    installRule(KEEPTIDY, dir);
     const before = readFileSync(path.join(dir, '.gitignore'), 'utf8');
 
-    const result = installRule(RULES[0], dir);
+    const result = installRule(KEEPTIDY, dir);
 
     assert.equal(result.copied, false);
     assert.equal(result.skipped, true);
@@ -79,7 +111,7 @@ test('existing target files are never overwritten', () => {
   withWorkspace((dir) => {
     writeFileSync(path.join(dir, 'KEEPTIDY.md'), 'MY CUSTOM RULE\n');
 
-    const result = installRule(RULES[0], dir);
+    const result = installRule(KEEPTIDY, dir);
 
     assert.equal(result.skipped, true);
     assert.equal(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8'), 'MY CUSTOM RULE\n');
@@ -95,7 +127,7 @@ test('existing .gitignore rules are preserved when /tmp/ is appended', () => {
 
     assert.equal(result.status, 'updated');
     assert.ok(content.startsWith('node_modules\n*.log\n'));
-    assert.ok(content.endsWith('# keeptidy: 临时目录\n/tmp/\n'));
+    assert.ok(content.endsWith('# keepit: 临时目录\n/tmp/\n'));
   });
 });
 
@@ -112,7 +144,7 @@ test('equivalent tmp ignore patterns are detected', () => {
 test('installRule throws when the packaged rule file is missing', () => {
   withWorkspace((dir) => {
     assert.throws(
-      () => installRule({ ...RULES[0], file: 'MISSING.md', postInstall: [] }, dir),
+      () => installRule({ ...KEEPTIDY, file: 'MISSING.md', postInstall: [] }, dir),
       /规则文件缺失/,
     );
   });
@@ -120,10 +152,19 @@ test('installRule throws when the packaged rule file is missing', () => {
 
 test('ensureAgentsReference creates AGENTS.md with the exact marked block', () => {
   withWorkspace((dir) => {
-    const result = ensureAgentsReference(dir);
+    const result = ensureAgentsReference(dir, [KEEPTIDY]);
 
     assert.equal(result.status, 'created');
-    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_KEEPTIDY_BLOCK);
+  });
+});
+
+test('ensureAgentsReference can reference multiple rules in one block', () => {
+  withWorkspace((dir) => {
+    const result = ensureAgentsReference(dir, [KEEPSECURED, KEEPTIDY]);
+
+    assert.equal(result.status, 'created');
+    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BOTH_BLOCK);
   });
 });
 
@@ -131,12 +172,12 @@ test('ensureAgentsReference appends to existing content with one blank line', ()
   withWorkspace((dir) => {
     writeFileSync(path.join(dir, 'AGENTS.md'), '# Existing AGENTS\n\nKeep me.\n');
 
-    const result = ensureAgentsReference(dir);
+    const result = ensureAgentsReference(dir, [KEEPTIDY]);
 
     assert.equal(result.status, 'appended');
     assert.equal(
       readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
-      `# Existing AGENTS\n\nKeep me.\n\n${AGENTS_BLOCK}`,
+      `# Existing AGENTS\n\nKeep me.\n\n${AGENTS_KEEPTIDY_BLOCK}`,
     );
   });
 });
@@ -145,46 +186,30 @@ test('ensureAgentsReference handles files without a trailing newline', () => {
   withWorkspace((dir) => {
     writeFileSync(path.join(dir, 'AGENTS.md'), 'Keep me.');
 
-    ensureAgentsReference(dir);
+    ensureAgentsReference(dir, [KEEPTIDY]);
 
     assert.equal(
       readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
-      `Keep me.\n\n${AGENTS_BLOCK}`,
+      `Keep me.\n\n${AGENTS_KEEPTIDY_BLOCK}`,
     );
   });
 });
 
 test('ensureAgentsReference is idempotent and preserves an existing block', () => {
   withWorkspace((dir) => {
-    const original = `# Existing AGENTS\n\n${AGENTS_BLOCK}`;
+    const original = `# Existing AGENTS\n\n${AGENTS_KEEPTIDY_BLOCK}`;
     writeFileSync(path.join(dir, 'AGENTS.md'), original);
 
-    const result = ensureAgentsReference(dir);
+    const result = ensureAgentsReference(dir, [KEEPTIDY]);
 
     assert.equal(result.status, 'exists');
     assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), original);
   });
 });
 
-test('installRule writes AGENTS.md only when the agents option is enabled', () => {
+test('ensureAgentsReference requires at least one rule', () => {
   withWorkspace((dir) => {
-    const withoutAgents = installRule(RULES[0], dir);
-    assert.equal(withoutAgents.agents, null);
-    assert.equal(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8').length > 0, true);
-
-    const withAgents = installRule(RULES[0], dir, { agents: true });
-    assert.equal(withAgents.agents.status, 'created');
-    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
-  });
-});
-
-test('installRule does not duplicate the AGENTS.md block on a second run', () => {
-  withWorkspace((dir) => {
-    installRule(RULES[0], dir, { agents: true });
-    const result = installRule(RULES[0], dir, { agents: true });
-
-    assert.equal(result.agents.status, 'exists');
-    assert.equal(readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), AGENTS_BLOCK);
+    assert.throws(() => ensureAgentsReference(dir, []), /没有可写入 AGENTS\.md 的规则/);
   });
 });
 
@@ -200,12 +225,13 @@ function runCli(args, options = {}) {
   });
 }
 
-test('--help prints usage and available rules', () => {
+test('--help prints usage and auto-loaded rules', () => {
   const result = runCli(['--help']);
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /用法/);
   assert.match(result.stdout, /KEEPTIDY\.md/);
+  assert.match(result.stdout, /KEEPSECURED\.md/);
 });
 
 test('--version prints the package version', () => {

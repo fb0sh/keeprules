@@ -17,7 +17,7 @@ import { stripVTControlCharacters } from 'node:util';
 import pc from 'picocolors';
 
 /** Sentinel returned when the user cancels the prompt. */
-export const CANCEL = Symbol('keeptidy:cancel');
+export const CANCEL = Symbol('keepit:cancel');
 
 const S_STEP_ACTIVE = pc.green('◆');
 const S_STEP_CANCEL = pc.red('■');
