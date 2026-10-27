@@ -377,7 +377,7 @@ async function runAdd() {
   }
 
   p.outro(
-    `${pc.green('完成！')} 规则已就绪。${pc.dim(`仓库: ${PROJECT_URL}`)}`,
+    `${pc.green('完成！')} 规则已就绪，请让 Coding Agent 阅读项目中的规则文件。`,
   );
   return 0;
 }
