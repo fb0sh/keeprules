@@ -6,7 +6,7 @@ postInstall:
   - agents
 ---
 
-# KEEPSECURED.md
+# rules/KEEPSECURED.md
 
 # Coding Agent Security & Sensitive Data Rules
 

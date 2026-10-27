@@ -7,7 +7,7 @@ postInstall:
   - agents
 ---
 
-# KEEPTIDY.md
+# rules/KEEPTIDY.md
 
 # Coding Agent Engineering & Resource Hygiene Rules
 
@@ -39,8 +39,8 @@ postInstall:
 ```text
 project/
 ├── AGENTS.md
-├── RULES/
-    └── KEEPTIDY.md 
+├── rules/
+│   └── KEEPTIDY.md
 ├── .gitignore
 ├── src/
 ├── tests/

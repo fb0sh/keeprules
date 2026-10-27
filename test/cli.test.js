@@ -16,7 +16,10 @@ function runCli(args, options = {}) {
     cwd: options.cwd ?? ROOT,
     env: {
       ...process.env,
+      // Windows reads TEMP/TMP rather than TMPDIR.
       TMPDIR: path.join(TMP_ROOT, 'spawn'),
+      TEMP: path.join(TMP_ROOT, 'spawn'),
+      TMP: path.join(TMP_ROOT, 'spawn'),
       ...options.env,
     },
   });
@@ -55,4 +58,78 @@ test('add refuses to start without a TTY', () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /需要交互式终端/);
+});
+
+test('--help lists every rule under its install path', () => {
+  const result = runCli(['--help']);
+
+  assert.match(result.stdout, /rules\/KEEPTIDY\.md/);
+  assert.match(result.stdout, /rules\/KEEPSECURED\.md/);
+});
+
+test('an unknown postInstall step is rejected at startup', () => {
+  // bin validates every rule's postInstall names against the installed steps
+  // during module load, so a typo in a rule file fails before any prompt.
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+      import { assertKnownSteps } from './src/install.js';
+      try {
+        assertKnownSteps(['not-a-step'], '规则 X.md');
+        console.log('NO THROW');
+      } catch (error) {
+        console.error(error.message);
+        process.exit(3);
+      }
+      `,
+    ],
+    { encoding: 'utf8', cwd: ROOT },
+  );
+
+  assert.equal(result.status, 3);
+  assert.match(result.stderr, /不支持的 postInstall 步骤: "not-a-step"/);
+});
+
+test('parseArgs maps argv to exactly one intent', async () => {
+  const { parseArgs } = await import('../bin/keeprules.js');
+
+  assert.deepEqual(parseArgs([]), { kind: 'add' });
+  assert.deepEqual(parseArgs(['add']), { kind: 'add' });
+  assert.deepEqual(parseArgs(['-h']), { kind: 'help' });
+  assert.deepEqual(parseArgs(['--help']), { kind: 'help' });
+  assert.deepEqual(parseArgs(['help']), { kind: 'help' });
+  assert.deepEqual(parseArgs(['-v']), { kind: 'version' });
+  assert.deepEqual(parseArgs(['--version']), { kind: 'version' });
+  assert.deepEqual(parseArgs(['version']), { kind: 'version' });
+
+  assert.equal(parseArgs(['nope']).kind, 'error');
+  assert.match(parseArgs(['nope']).message, /未知命令: nope/);
+  assert.equal(parseArgs(['--nope']).kind, 'error');
+  assert.match(parseArgs(['--nope']).message, /未知选项: --nope/);
+  assert.equal(parseArgs(['add', 'extra']).kind, 'error');
+  assert.match(parseArgs(['add', 'extra']).message, /多余的参数: extra/);
+});
+
+test('help wins over an unknown flag, as before', async () => {
+  const { parseArgs } = await import('../bin/keeprules.js');
+
+  assert.deepEqual(parseArgs(['--help', '--nope']), { kind: 'help' });
+  assert.deepEqual(parseArgs(['--version', 'nope']), { kind: 'version' });
+});
+
+test('positional help/version aliases work through the binary', () => {
+  assert.equal(runCli(['help']).status, 0);
+  assert.match(runCli(['help']).stdout, /用法/);
+  assert.equal(runCli(['version']).status, 0);
+  assert.equal(runCli(['version']).stdout.trim(), pkg.version);
+});
+
+test('extra positional arguments exit non-zero', () => {
+  const result = runCli(['add', 'extra']);
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /多余的参数/);
 });

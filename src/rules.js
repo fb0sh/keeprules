@@ -7,9 +7,20 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { assertSupportedPostInstall } from './rule-capabilities.js';
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+
+/**
+ * Compare two strings by code point.
+ *
+ * `localeCompare` is deliberately avoided: its ordering depends on the host
+ * locale and ICU build, so the picker would list rules in a different order on
+ * different machines. Code point order is stable everywhere.
+ */
+function compareCodePoints(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
 
 /** Parse a quoted or plain YAML scalar. */
 function parseScalar(rawValue) {
@@ -52,7 +63,7 @@ function parseScalar(rawValue) {
  *
  * Unsupported/complex YAML is intentionally ignored rather than executed.
  */
-export function parseSimpleYaml(text) {
+function parseSimpleYaml(text) {
   const data = {};
   let currentKey = null;
 
@@ -86,18 +97,17 @@ export function parseSimpleYaml(text) {
 }
 
 /** Split frontmatter from the Markdown body. */
-export function parseFrontmatter(content) {
+function parseFrontmatter(content) {
   const normalized = String(content).replace(/^\uFEFF/, '');
   const match = FRONTMATTER_PATTERN.exec(normalized);
 
   if (!match) {
-    return { data: {}, body: normalized, hasFrontmatter: false };
+    return { data: {}, body: normalized };
   }
 
   return {
     data: parseSimpleYaml(match[1]),
     body: normalized.slice(match[0].length),
-    hasFrontmatter: true,
   };
 }
 
@@ -128,24 +138,54 @@ function asStringArray(value) {
 }
 
 /**
+ * Reject rule file names that map to the same file on a case-insensitive
+ * filesystem (default on macOS and Windows).
+ *
+ * Without this check such a pair installs silently wrong: the second copy
+ * collides with the first, is reported as "already exists", and AGENTS.md ends
+ * up linking the same file twice.
+ */
+function assertNoFileNameCollisions(fileNames) {
+  const seen = new Map();
+
+  for (const fileName of fileNames) {
+    const key = fileName.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(
+        `规则文件名大小写冲突: "${seen.get(key)}" 与 "${fileName}"。` +
+          'macOS 与 Windows 的文件系统默认不区分大小写，这两个规则会写入同一个文件。请重命名其中一个。',
+      );
+    }
+    seen.set(key, fileName);
+  }
+}
+
+/**
  * Read every `.md` file in `rulesDir` and build the rule registry.
  *
  * Files without frontmatter still work: id and name fall back to the file
  * basename, and description falls back to the first Markdown line.
  *
  * @param {string} rulesDir absolute path to the rules directory
+ * @param {{fileNames?: string[]}} [options] `fileNames` overrides the scan; it
+ *   exists so the case-collision check can be exercised on a filesystem that
+ *   cannot hold colliding names in the first place.
  * @returns {{id: string, name: string, description: string, file: string, sourcePath: string, postInstall: string[]}[]}
  */
-export function loadRules(rulesDir) {
-  const fileNames = readdirSync(rulesDir, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.toLowerCase().endsWith('.md') &&
-        !entry.name.startsWith('.'),
-    )
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b));
+export function loadRules(rulesDir, { fileNames: overrideNames } = {}) {
+  const fileNames = (
+    overrideNames ??
+    readdirSync(rulesDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.toLowerCase().endsWith('.md') &&
+          !entry.name.startsWith('.'),
+      )
+      .map((entry) => entry.name)
+  ).sort(compareCodePoints);
+
+  assertNoFileNameCollisions(fileNames);
 
   const rules = [];
   const seenIds = new Map();
@@ -159,8 +199,6 @@ export function loadRules(rulesDir) {
     const name = asString(data.name) || baseName;
     const description = asString(data.description) || fallbackDescription(body);
     const postInstall = asStringArray(data.postInstall);
-
-    assertSupportedPostInstall(postInstall, fileName);
 
     if (seenIds.has(id)) {
       throw new Error(

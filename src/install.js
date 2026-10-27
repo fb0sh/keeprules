@@ -1,232 +1,357 @@
 /**
- * Deep install module: rule data in, one install report out.
+ * Install: copy the selected rules into the project, then run the
+ * project-level steps those rules declare.
  *
- * This module owns the file-write policy for copied rules, managed append
- * blocks, and the per-rule versus collective postInstall split. It performs
- * no prompts, rendering, or process exit handling.
+ * This is the whole write policy in one place — where rules land, how the
+ * `.gitignore` and `AGENTS.md` blocks are written, what gets reported. There are
+ * exactly two steps, so they are two functions, not a plugin system.
  */
 
 import {
   copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import {
-  POST_INSTALL_STEPS,
-  assertSupportedPostInstall,
-} from './rule-capabilities.js';
 
-const GITIGNORE_HEADER = '# keeprules: 临时目录';
-const AGENTS_FILE = 'AGENTS.md';
-const AGENTS_MARKER_START = '<!-- keeprules:start -->';
-const AGENTS_MARKER_END = '<!-- keeprules:end -->';
+/** Rules are copied into a dedicated directory, not the project root. */
+export const RULES_DIR = 'rules';
 
-/** Build the marked AGENTS.md block for selected rules. */
-export function buildAgentsBlock(rules) {
-  const sections = rules.map((rule) =>
-    [
-      `## ${rule.name}`,
-      '',
-      `Follow the ${rule.name} rules defined in [${rule.file}](./${rule.file}).`,
-    ].join('\n'),
-  );
+/** Project-relative destination for a rule file, e.g. `rules/KEEPTIDY.md`. */
+export function ruleTargetPath(rule) {
+  return path.posix.join(RULES_DIR, rule.file);
+}
+
+// ── file helpers ────────────────────────────────────────────────────────────
+
+/** Read a file with its path, existence, and line-ending convention. */
+function open(filePath) {
+  const exists = existsSync(filePath);
+  const content = exists ? readFileSync(filePath, 'utf8') : '';
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+
+  return {
+    path: filePath,
+    exists,
+    content,
+    eol,
+    /** Write `text` (which uses \n) in this file's convention. */
+    render: (text) => text.split('\n').join(eol),
+  };
+}
+
+/** Append rendered text, keeping the file's existing blank-line style. */
+function append(file, text) {
+  const block = file.render(text) + file.eol;
+
+  let separator = '';
+  if (file.content.length > 0) {
+    if (file.content.endsWith(`${file.eol}${file.eol}`)) separator = '';
+    else if (file.content.endsWith('\n')) separator = file.eol;
+    else separator = `${file.eol}${file.eol}`;
+  }
+
+  writeFileSync(file.path, file.content + separator + block, 'utf8');
+}
+
+// ── step: .gitignore ────────────────────────────────────────────────────────
+
+const GITIGNORE_BLOCK = ['# keeprules: 临时目录', '/tmp/'];
+
+/** Does this ignore file already cover the project `tmp/` directory? */
+function hasTmpEntry(content) {
+  return content.split(/\r?\n/).some((raw) => {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('!')) return false;
+
+    return line.replace(/^\/+/, '').replace(/\/+$/, '') === 'tmp';
+  });
+}
+
+function addTmpIgnore(cwd) {
+  const file = open(path.join(cwd, '.gitignore'));
+
+  if (hasTmpEntry(file.content)) {
+    return { level: 'info', message: '.gitignore 已包含 /tmp/ 规则，无需修改' };
+  }
+
+  append(file, GITIGNORE_BLOCK.join('\n'));
+
+  return {
+    level: 'success',
+    message: file.exists
+      ? '已向 .gitignore 补充 /tmp/ 规则'
+      : '已创建 .gitignore 并添加 /tmp/ 规则',
+  };
+}
+
+// ── step: AGENTS.md reference block ─────────────────────────────────────────
+
+const AGENTS_START = '<!-- keeprules:start -->';
+const AGENTS_END = '<!-- keeprules:end -->';
+const AGENTS_FOOTER =
+  'These rules are mandatory for all Coding Agents working in this repository.';
+
+/** One `## NAME` section pointing at the installed rule file. */
+function renderSection(rule) {
+  const target = ruleTargetPath(rule);
+  return `## ${rule.name}\n\nFollow the ${rule.name} rules defined in [${target}](./${target}).`;
+}
+
+/** The whole marked block, for these rules plus any preserved sections. */
+function renderBlock(rules, preserved = []) {
+  const sections = [...rules.map(renderSection), ...preserved];
 
   return [
-    AGENTS_MARKER_START,
+    AGENTS_START,
     ...sections.flatMap((section, index) =>
       index === 0 ? [section] : ['', section],
     ),
     '',
-    'These rules are mandatory for all Coding Agents working in this repository.',
-    AGENTS_MARKER_END,
+    AGENTS_FOOTER,
+    AGENTS_END,
   ].join('\n');
 }
 
-/**
- * Check whether a .gitignore already ignores the project `tmp/` directory.
- * Accepts common equivalent spellings: `tmp`, `tmp/`, `/tmp`, `/tmp/`.
- */
-export function hasTmpIgnoreRule(content) {
-  return content.split(/\r?\n/).some((rawLine) => {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#') || line.startsWith('!')) {
-      return false;
+/** Split an existing block body back into its `## NAME` sections. */
+function splitSections(body) {
+  const sections = [];
+  let current = [];
+
+  for (const line of body.split(/\r?\n/)) {
+    if (line.trim() === AGENTS_FOOTER) continue;
+
+    if (/^##\s+/.test(line)) {
+      if (current.length > 0) sections.push(current.join('\n').trim());
+      current = [line];
+      continue;
     }
 
-    const normalized = line.replace(/^\/+/, '').replace(/\/+$/, '');
-    return normalized === 'tmp';
-  });
+    current.push(line);
+  }
+
+  const tail = current.join('\n').trim();
+  if (tail) sections.push(tail);
+
+  return sections
+    .map((text) => ({
+      name: /^##\s+(.+)$/m.exec(text)?.[1].trim() ?? '',
+      text,
+    }))
+    .filter((section) => section.name);
 }
 
 /**
- * Append a managed block once, preserving existing content and line endings.
- *
- * @returns {{status: 'created' | 'appended' | 'exists', path: string}}
+ * Correct a root-level rule link (`[X.md](./X.md)`) written by keeprules 0.1.1,
+ * which copied rules into the project root.
  */
-function appendManagedBlock({ filePath, block, isPresent }) {
-  const fileExists = existsSync(filePath);
-  const content = fileExists ? readFileSync(filePath, 'utf8') : '';
+function normalizeLinks(section) {
+  return section.replace(
+    /\[([^\]/]+\.md)\]\((?:(\.\/))?([^/)]+\.md)\)/g,
+    (match, label, _dot, target) =>
+      label === target
+        ? `[${RULES_DIR}/${target}](./${RULES_DIR}/${target})`
+        : match,
+  );
+}
 
-  if (isPresent(content)) {
-    return { status: 'exists', path: filePath };
+function addAgentReferences(rules, cwd) {
+  if (rules.length === 0) {
+    return {
+      level: 'info',
+      message: '没有成功安装的规则可引用，已跳过 AGENTS.md',
+    };
   }
 
-  const eol = content.includes('\r\n') ? '\r\n' : '\n';
-  const renderedBlock = block.split('\n').join(eol) + eol;
+  const file = open(path.join(cwd, 'AGENTS.md'));
+  const start = file.content.indexOf(AGENTS_START);
+  const end = file.content.indexOf(AGENTS_END);
 
-  let separator = '';
-  if (content.length > 0) {
-    if (content.endsWith(`${eol}${eol}`)) {
-      separator = '';
-    } else if (content.endsWith('\n')) {
-      separator = eol;
-    } else {
-      separator = `${eol}${eol}`;
+  // No block yet: append one.
+  if (start === -1 || end === -1 || end < start) {
+    if (file.content.includes(AGENTS_START)) {
+      return { level: 'info', message: 'AGENTS.md 中已存在 keeprules 引用，无需修改' };
+    }
+
+    append(file, renderBlock(rules));
+
+    return {
+      level: 'success',
+      message: file.exists
+        ? '已向 AGENTS.md 追加规则引用'
+        : '已创建 AGENTS.md 并添加规则引用',
+    };
+  }
+
+  // Rewrite the block in place, keeping rules an earlier run referenced.
+  const selected = new Set(rules.map((rule) => rule.name));
+  const preserved = splitSections(
+    file.content.slice(start + AGENTS_START.length, end),
+  )
+    .filter((section) => !selected.has(section.name))
+    .map((section) => normalizeLinks(section.text));
+
+  const rendered = file.render(renderBlock(rules, preserved));
+  const next =
+    file.content.slice(0, start) +
+    rendered +
+    file.content.slice(end + AGENTS_END.length);
+
+  if (next === file.content) {
+    return { level: 'info', message: 'AGENTS.md 中已存在 keeprules 引用，无需修改' };
+  }
+
+  writeFileSync(file.path, next, 'utf8');
+  return { level: 'success', message: '已更新 AGENTS.md 中的规则引用' };
+}
+
+// ── steps registry ──────────────────────────────────────────────────────────
+
+/**
+ * The project-level steps an install can perform, keyed by the name a rule
+ * writes in its `postInstall` list.
+ *
+ * `automatic` steps run whenever a selected rule declares them; a step with a
+ * `prompt` runs only after the user agrees.
+ */
+const STEPS = {
+  gitignore: { automatic: true, run: (_rules, cwd) => addTmpIgnore(cwd) },
+  agents: {
+    prompt: '是否在 AGENTS.md 中添加引用？',
+    declined: '已跳过 AGENTS.md 引用',
+    run: (rules, cwd) => addAgentReferences(rules, cwd),
+  },
+};
+
+/** Reject a `postInstall` name no step implements. */
+export function assertKnownSteps(names, source) {
+  for (const name of names) {
+    if (!Object.hasOwn(STEPS, name)) {
+      throw new Error(
+        `${source} 包含不支持的 postInstall 步骤: "${name}"。支持: ${Object.keys(
+          STEPS,
+        ).join(', ')}`,
+      );
     }
   }
-
-  writeFileSync(filePath, content + separator + renderedBlock, 'utf8');
-  return { status: fileExists ? 'appended' : 'created', path: filePath };
 }
 
-/**
- * Ensure `.gitignore` contains `/tmp/` without touching existing rules.
- *
- * @returns {{status: 'created' | 'updated' | 'exists', path: string}}
- */
-export function ensureGitignoreTmp(cwd) {
-  const result = appendManagedBlock({
-    filePath: path.join(cwd, '.gitignore'),
-    block: [GITIGNORE_HEADER, '/tmp/'].join('\n'),
-    isPresent: hasTmpIgnoreRule,
-  });
-
-  return {
-    status: result.status === 'appended' ? 'updated' : result.status,
-    path: result.path,
-  };
+/** The steps these rules declare, in registry order. */
+function declaredBy(rules) {
+  return Object.entries(STEPS)
+    .filter(([name]) => rules.some((rule) => rule.postInstall?.includes(name)))
+    .map(([name, step]) => ({ name, ...step }));
 }
 
-/**
- * Ensure AGENTS.md references the selected rule files inside one marked block.
- *
- * @returns {{status: 'created' | 'appended' | 'exists', path: string}}
- */
-export function ensureAgentsReference(cwd, rules) {
-  if (!Array.isArray(rules) || rules.length === 0) {
-    throw new Error('没有可写入 AGENTS.md 的规则');
+/** The opt-in steps to ask the user about, for this selection. */
+export function promptSteps(rules) {
+  return declaredBy(rules)
+    .filter((step) => step.prompt)
+    .map(({ name, prompt, declined }) => ({ name, prompt, declined }));
+}
+
+// ── install ─────────────────────────────────────────────────────────────────
+
+/** Fail two rules that would write the same file on a case-insensitive disk. */
+function claimTargets(rules) {
+  const claimed = new Map();
+  const installable = [];
+  const failures = [];
+
+  for (const rule of rules) {
+    const target = ruleTargetPath(rule);
+    const owner = claimed.get(target.toLowerCase());
+
+    if (owner) {
+      failures.push({
+        subject: rule.name,
+        message:
+          `目标文件冲突: "${ruleTargetPath(owner)}" 与 "${target}" ` +
+          '在大小写不敏感的文件系统上是同一个文件，请重命名其中一个规则。',
+      });
+      continue;
+    }
+
+    claimed.set(target.toLowerCase(), rule);
+    installable.push(rule);
   }
 
-  return appendManagedBlock({
-    filePath: path.join(cwd, AGENTS_FILE),
-    block: buildAgentsBlock(rules),
-    isPresent: (content) => content.includes(AGENTS_MARKER_START),
-  });
+  return { installable, failures };
 }
 
-/** Per-rule postInstall handlers. */
-const PER_RULE_HANDLERS = {
-  gitignore: (_rule, cwd) => ensureGitignoreTmp(cwd),
-};
-
-/** Collective postInstall handlers; each runs once for all matching rules. */
-const COLLECTIVE_HANDLERS = {
-  agents: (rules, cwd) => ensureAgentsReference(cwd, rules),
-};
-
-/**
- * Copy one rule file and run its per-rule postInstall steps.
- *
- * @param {object} rule loaded rule with a sourcePath
- * @param {string} cwd target project directory
- * @returns {{
- *   rule: object,
- *   target: string,
- *   copied: boolean,
- *   skipped: boolean,
- *   postInstall: Record<string, {status: string, path: string}>,
- * }}
- */
-export function installRule(rule, cwd) {
-  assertSupportedPostInstall(rule.postInstall ?? [], rule.file);
+/** Copy one rule file, unless it is already there. */
+function copyRule(rule, cwd) {
+  assertKnownSteps(rule.postInstall ?? [], `规则 ${rule.file}`);
 
   if (!rule.sourcePath || !existsSync(rule.sourcePath)) {
     throw new Error(`规则文件缺失: ${rule.sourcePath ?? rule.file}`);
   }
 
-  const target = path.join(cwd, rule.file);
-  const result = {
-    rule,
-    target,
-    copied: false,
-    skipped: false,
-    postInstall: {},
-  };
+  const relative = ruleTargetPath(rule);
+  const target = path.join(cwd, relative);
 
   if (existsSync(target)) {
-    result.skipped = true;
-  } else {
-    copyFileSync(rule.sourcePath, target);
-    result.copied = true;
+    return {
+      level: 'warn',
+      message: `${relative} 已存在，已跳过（未覆盖现有文件；项目级规则步骤照常执行）`,
+    };
   }
 
-  for (const step of rule.postInstall ?? []) {
-    if (POST_INSTALL_STEPS[step].scope !== 'rule') continue;
-    const handler = PER_RULE_HANDLERS[step];
-    if (!handler) {
-      throw new Error(`postInstall 步骤缺少处理器: ${step}`);
-    }
-    result.postInstall[step] = handler(rule, cwd);
-  }
+  mkdirSync(path.dirname(target), { recursive: true });
+  copyFileSync(rule.sourcePath, target);
 
-  return result;
+  return { level: 'success', message: `${rule.name} → ${relative}` };
 }
 
 /**
- * Install every selected rule, then run each enabled collective step once.
+ * Install the selected rules, then run the steps they declare.
+ *
+ * Policy:
+ * - An existing rule file is never overwritten.
+ * - Steps run for every *selected* rule that declares them, even when a copy
+ *   was skipped — they assert project invariants, not the rule's contents.
+ * - `confirmed` names the opt-in steps the user agreed to; a step that was not
+ *   confirmed never runs.
+ * - One failure never stops the others.
  *
  * @param {object} options
- * @param {object[]} options.rules selected rule entries
- * @param {string} options.cwd target project directory
- * @param {Record<string, boolean>} [options.collective] enabled collective steps
- * @returns {{
- *   results: object[],
- *   collective: Record<string, {status: string, path: string}>,
- *   failures: {rule: object, error: Error}[],
- * }}
+ * @param {object[]} options.rules selected rules
+ * @param {string} options.cwd target project
+ * @param {string[]} [options.confirmed] opt-in step names the user accepted
+ * @returns {{outcomes: {level: string, message: string}[], failures: {subject: string, message: string}[]}}
  */
-export function installSelection({ rules, cwd, collective = {} }) {
-  const results = [];
+export function installSelection({ rules, cwd, confirmed = [] }) {
+  assertKnownSteps(confirmed, `选项 ${confirmed.join(', ')}`);
+
+  const outcomes = [];
   const failures = [];
-  const collectiveResults = {};
 
-  for (const rule of rules) {
+  const claim = claimTargets(rules);
+  failures.push(...claim.failures);
+
+  const installed = [];
+
+  for (const rule of claim.installable) {
     try {
-      results.push(installRule(rule, cwd));
+      outcomes.push(copyRule(rule, cwd));
+      installed.push(rule);
     } catch (error) {
-      failures.push({ rule, error });
+      failures.push({ subject: rule.name, message: error.message });
     }
   }
 
-  for (const [step, handler] of Object.entries(COLLECTIVE_HANDLERS)) {
-    if (!collective[step]) continue;
-
-    const matchingRules = rules.filter((rule) =>
-      rule.postInstall?.includes(step),
-    );
-    if (matchingRules.length === 0) continue;
+  for (const step of declaredBy(rules)) {
+    const enabled = step.automatic || confirmed.includes(step.name);
+    if (!enabled) continue;
 
     try {
-      collectiveResults[step] = handler(matchingRules, cwd);
+      outcomes.push(step.run(installed, cwd));
     } catch (error) {
-      failures.push({
-        rule: { name: step === 'agents' ? 'AGENTS.md' : step },
-        error,
-      });
+      failures.push({ subject: step.name, message: error.message });
     }
   }
 
-  return { results, collective: collectiveResults, failures };
+  return { outcomes, failures };
 }
