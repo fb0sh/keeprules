@@ -5,47 +5,67 @@
 - 仓库：https://github.com/fb0sh/keeprules
 - 作者：fb0sh@outlook.com
 
-在项目根目录执行一条命令，即可通过多选界面把需要的规则文件复制到当前项目，并自动补齐 `.gitignore`、AGENTS.md 引用等基础设施配置。
-
 ## 快速开始
 
+在目标项目根目录执行：
+
 ```bash
-# 在目标项目根目录执行（两种写法行为相同）
 npx keeprules add
+# 或
 npx keeprules
 ```
 
-要求：Node.js >= 18，且需要在交互式终端中运行。
+要求 Node.js >= 18，并需要在交互式终端中运行。
 
-## 它会做什么
+## 使用方法
 
-1. 扫描 `rules/*.md`，读取 frontmatter 自动生成规则列表。
-2. 显示规则选择界面：顶部是 `Select All (当前选中数/总数)`，默认不选中；`↑↓` 移动，空格切换，回车确认，高亮项的描述显示在列表下方。
-3. 对支持 AGENTS.md 引用的规则，询问是否写入 AGENTS.md 引用区块。
-4. 二次确认后，把选中的规则文件复制到**当前工作目录**。
-5. 如果目标文件已存在，跳过且不覆盖，保留你的本地修改。
-6. 对声明了 `postInstall: ['gitignore']` 的规则，检查 `.gitignore` 是否忽略 `/tmp/`；没有则追加，已有规则不受影响。
-7. 安装过程显示 spinner，支持 `Esc` / `Ctrl+C` 取消。
+安装向导会：
 
-安装过程不会访问网络，也不会读取或修改系统临时目录。
+1. 列出所有可用规则，默认不选中。
+2. 询问是否把规则引用写入 `AGENTS.md`。
+3. 复制选中的规则文件到当前项目。
+4. 必要时补充 `.gitignore` 中的 `/tmp/` 规则。
+
+已有的目标文件不会被覆盖。安装过程不访问网络。
+
+### 快捷键
+
+- `↑↓`：移动光标
+- `空格`：选中 / 取消当前规则
+- `a`：全选 / 取消全选
+- `回车`：确认
+- `Esc` / `Ctrl+C`：取消
+
+`Select All` 会显示 `○ 未选中`、`◐ 部分选中`、`● 全部选中` 三种状态。
 
 ## 可用规则
 
-| 规则 | 安装文件 | 说明 | postInstall |
-| --- | --- | --- | --- |
-| `KEEPTIDY` | `KEEPTIDY.md` | Coding Agent 工程卫生与资源管理规范（临时目录、Git 安全、进程清理、破坏性操作检查点等） | `gitignore`, `agents` |
-| `KEEPSECURED` | `KEEPSECURED.md` | Coding Agent 安全与敏感信息保护规范（凭证、日志脱敏、禁止外传、生产环境约束） | `agents` |
+| 规则 | 文件 | 说明 |
+| --- | --- | --- |
+| `KEEPTIDY` | `KEEPTIDY.md` | 工程卫生与资源管理（临时目录、Git 安全、进程清理、破坏性操作检查点） |
+| `KEEPSECURED` | `KEEPSECURED.md` | 安全与敏感信息保护（凭证、日志脱敏、禁止外传、生产环境约束） |
 
-`KEEPTIDY` 会确保项目 `.gitignore` 包含：
+选择 `KEEPTIDY` 时，会确保 `.gitignore` 包含：
 
 ```gitignore
 # keeprules: 临时目录
 /tmp/
 ```
 
-## 规则自动注册
+所有规则都可以选择是否在 `AGENTS.md` 中添加引用。引用使用 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 区块，只追加，不覆盖已有内容。
 
-规则不再硬编码在代码中。CLI 启动时会扫描 `rules/` 下的所有 `.md` 文件，并解析文件顶部的 YAML frontmatter：
+## 命令行选项
+
+```bash
+keeprules            # 进入交互式安装
+keeprules add        # 同上
+keeprules --help     # 显示帮助
+keeprules --version  # 显示版本
+```
+
+## 添加规则
+
+在 `rules/` 下新增 Markdown 文件，并添加 frontmatter：
 
 ```markdown
 ---
@@ -60,228 +80,69 @@ postInstall:
 # MY_RULE 正文...
 ```
 
-支持的字段：
+字段说明：
 
-- `id`：稳定标识，必须在所有规则中唯一
-- `name`：选择界面中显示的名称
-- `description`：高亮该规则时显示在列表下方的说明
-- `postInstall`：可选安装步骤，当前支持 `gitignore` 和 `agents`；未知步骤会在加载时报错
+- `id`：唯一标识
+- `name`：显示名称
+- `description`：选择界面中的说明
+- `postInstall`：可选步骤，目前支持 `gitignore` 和 `agents`
 
-如果文件没有 frontmatter，会自动降级：
+无需修改代码，CLI 会自动发现新规则。没有 frontmatter 时，`id` / `name` 使用文件名，`description` 使用正文第一行。
 
-- `id` / `name` 使用文件名（不含 `.md`）
-- `description` 使用正文第一行
-- `postInstall` 为空
-
-规则按文件名排序。若两个文件声明了相同的 `id`，CLI 会报错并提示冲突文件。
-
-## AGENTS.md 引用（可选）
-
-当选中的规则包含 `postInstall: ['agents']` 时，会额外询问：
-
-> 是否在 AGENTS.md 中添加引用？
-
-默认选择 Yes，也可以拒绝。同意后会以标记区块追加引用；如果同时选择多个规则，会合并到同一个区块：
-
-```markdown
-<!-- keeprules:start -->
-## KEEPSECURED
-
-Follow the KEEPSECURED rules defined in [KEEPSECURED.md](./KEEPSECURED.md).
-
-## KEEPTIDY
-
-Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).
-
-These rules are mandatory for all Coding Agents working in this repository.
-<!-- keeprules:end -->
-```
-
-写入规则：
-
-- `AGENTS.md` 不存在：创建文件并写入区块。
-- 已存在但没有 `<!-- keeprules:start -->`：在文件末尾追加，并与原内容之间保留一个空行。
-- 已存在标记区块：跳过，并提示「AGENTS.md 中已存在 keeprules 引用」。
-- 用户拒绝：跳过，不修改 `AGENTS.md`。
-
-用户已有的 `AGENTS.md` 内容不会被覆盖。
-
-## 命令行选项
+## 本地开发
 
 ```bash
-keeprules            # 进入交互式安装（默认不选中任何规则）
-keeprules add        # 同上
-keeprules --help     # 显示帮助
-keeprules --version  # 显示版本
-```
-
-多选快捷键：`↑↓` 移动光标，`空格` 切换选中 / Select All，`a` 快捷全选，`回车` 确认，`Esc` / `Ctrl+C` 取消。
-
-规则选择界面参考 `vercel-labs/skills` 的交互风格：
-
-```text
-◆  选择要安装的规则
-│
-│ ❯ ○ Select All (0/2)
-│   ────────────────────────────────────
-│   ○ KEEPSECURED
-│   ○ KEEPTIDY
-│
-│  Description
-│  Coding Agent 安全与敏感信息保护规范（凭证、日志脱敏、
-│  禁止外传、生产环境约束）
-│
-│  Selected: (none)
-│
-│  ↑↓ 移动 · 空格 选择 · 回车 确认
-│  a 全选 / 取消全选 · Esc 取消
-└
-```
-
-`Select All` 会显示 `○ 未选中` / `◐ 部分选中` / `● 全部选中` 三种状态。
-
-## 项目结构
-
-```text
-keeprules/
-├── bin/
-│   └── keeprules.js                # CLI 入口（argv + prompt 编排 + 状态输出）
-├── src/
-│   ├── rules.js                    # rules/*.md 扫描与 frontmatter 解析
-│   ├── rule-capabilities.js        # postInstall 词汇与作用域
-│   ├── install.js                  # 安装策略、managed append、安装报告
-│   └── prompts/
-│       ├── text.js                 # 终端宽度、换行、行数计算
-│       ├── picker.js               # 选择状态机与纯 frame 渲染
-│       ├── rule-multiselect.js     # readline 终端适配器
-│       └── prompt-session.js       # 统一 prompt 取消语义
-├── rules/
-│   ├── KEEPSECURED.md              # 随包发布的安全规则
-│   └── KEEPTIDY.md                 # 随包发布的工程卫生规则
-├── test/
-│   ├── cli.test.js                 # CLI 参数、help、version、非 TTY
-│   ├── install.test.js             # 安装策略与 managed append
-│   ├── rules.test.js               # 自动注册、解析、postInstall 校验
-│   ├── picker.test.js              # 选择状态机与 frame 组成
-│   ├── prompt-text.test.js         # 文本测量与换行
-│   └── prompt-session.test.js      # 取消结果统一
-├── package.json
-├── README.md
-├── LICENSE
-└── .gitignore
-```
-
-## 本地开发与测试
-
-```bash
-git clone https://github.com/fb0sh/keeprules.git keeprules
+git clone https://github.com/fb0sh/keeprules.git
 cd keeprules
 npm install
+npm test
 
-npm test                        # 运行测试
-node bin/keeprules.js --help       # 直接运行 CLI
+node bin/keeprules.js --help
 node bin/keeprules.js --version
 ```
 
-### 方式一：npm link（推荐调试 CLI）
+### 本地调试
 
 ```bash
-# 在 keeprules 仓库内
+# 在仓库内
 npm link
 
-# 换到任意测试项目
-cd /path/to/your-project
+# 在测试项目中
 keeprules add
 
-# 不再需要时解除全局链接
+# 解除链接
 npm unlink -g keeprules
 ```
 
-### 方式二：npm pack（模拟真实安装）
+### 打包测试
 
 ```bash
-# 在 keeprules 仓库内
 npm pack
-# 生成 keeprules-0.1.0.tgz
 
-# 在临时测试项目中安装
 mkdir demo && cd demo
 npm init -y
-npm install ../keeprules-0.1.0.tgz
+npm install ../keeprules-0.1.1.tgz
 npx keeprules add
 ```
 
-也可以先检查发布内容，确认只包含需要的文件：
-
-```bash
-npm pack --dry-run
-```
-
-## 发布到 npm
-
-发布前确认登录状态正常，并跑通测试：
+## 发布
 
 ```bash
 npm test
-npm whoami                   # 未登录时先执行 npm login
-npm view keeprules version   # 404 表示包名尚未被占用
-npm pack --dry-run           # 检查打包内容
-npm publish --dry-run        # 发布预演
-```
-
-正式发布：
-
-```bash
+npm login
+npm view keeprules version   # 404 表示包名可用
 npm publish
-```
 
-发布后验证：
-
-```bash
+# 发布后验证
 npx keeprules@latest --version
 ```
 
 如果名称日后被占用，可改用 scope：
 
-```json
-{
-  "name": "@fb0sh/keeprules"
-}
-```
-
 ```bash
 npm publish --access public
 npx @fb0sh/keeprules add
 ```
-
-若账号启用了两步验证，发布时按提示传入 `--otp=<code>`。
-
-### 版本更新
-
-```bash
-npm version patch   # 0.1.0 -> 0.1.1（修复）
-npm version minor   # 0.1.0 -> 0.2.0（新增规则/功能）
-npm publish
-```
-
-## 添加新规则
-
-1. 在 `rules/` 下新增 Markdown 文件，例如 `rules/MY_RULE.md`。
-2. 在文件顶部添加 frontmatter（`id`、`name`、`description`、`postInstall`）。
-3. 运行 `npm test` 和 `npm pack --dry-run`，确认新文件会被发布。
-
-无需修改 `bin/keeprules.js`，CLI 会自动发现并注册新规则。
-
-## 设计约定
-
-- 规则由 `rules/*.md` + frontmatter 自动注册，新增规则不需要改代码。
-- 只复制，不覆盖：已有目标文件一律跳过，避免破坏用户内容。
-- `.gitignore` 只追加缺失的 `/tmp/` 规则，保留全部现有内容。
-- `AGENTS.md` 使用 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 标记区块，只追加一次，不覆盖原有内容。
-- 规则选择界面为轻量自定义实现（readline + picocolors），包含 Select All、固定高度描述区和操作提示；交互风格参考 `vercel-labs/skills`，不依赖其代码。
-- 交互取消（`Esc` / `Ctrl+C`）返回退出码 `0`，不会产生任何文件。
-- 非 TTY 环境（如 CI）会直接报错退出，避免卡住。
-- `AGENTS.md`、确认、预览等其余交互使用 `@clack/prompts` 0.11.x，以兼容 Node.js 18；更新的 1.x 要求 Node.js >= 20.12。
 
 ## License
 
