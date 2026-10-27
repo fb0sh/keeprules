@@ -16,7 +16,7 @@ npx keeptidy
 
 ## 它会做什么
 
-1. 显示可安装的规则列表（名称 + 描述），用空格多选、回车确认。
+1. 显示规则选择界面：顶部是 `Select All (当前选中数/总数)`，默认不选中；`↑↓` 移动，空格切换，回车确认，高亮项的描述显示在列表下方。
 2. 对支持 AGENTS.md 引用的规则（目前是 KEEPTIDY），询问是否写入 AGENTS.md 引用区块。
 3. 二次确认后，把选中的规则文件复制到**当前工作目录**。
 4. 如果目标文件已存在，跳过且不覆盖，保留你的本地修改。
@@ -42,7 +42,7 @@ npx keeptidy
 
 安装 KEEPTIDY 时会额外询问：
 
-> 是否在 AGENTS.md 中添加对 KEEPTIDY 的引用？
+> 是否在 AGENTS.md 中添加引用？
 
 默认选择 Yes，也可以拒绝。同意后会以标记区块追加以下内容：
 
@@ -68,22 +68,50 @@ These rules are mandatory for all Coding Agents working in this repository.
 ## 命令行选项
 
 ```bash
-keeptidy            # 进入交互式安装
+keeptidy            # 进入交互式安装（默认不选中任何规则）
 keeptidy add        # 同上
 keeptidy --help     # 显示帮助
 keeptidy --version  # 显示版本
 ```
+
+多选快捷键：`↑↓` 移动光标，`空格` 切换选中 / Select All，`a` 快捷全选，`回车` 确认，`Esc` / `Ctrl+C` 取消。
+
+规则选择界面参考 `vercel-labs/skills` 的交互风格：
+
+```text
+◆  选择要安装的规则
+│
+│ ❯ ○ Select All (0/1)
+│   ────────────────────────────────────
+│   ○ KEEPTIDY
+│
+│  Description
+│  Coding Agent 工程卫生与资源管理规范（临时目录、Git
+│  安全、进程清理、破坏性操作检查点等）
+│
+│  Selected: (none)
+│
+│  ↑↓ 移动 · 空格 选择 · 回车 确认
+│  a 全选 / 取消全选 · Esc 取消
+└
+```
+
+`Select All` 会显示 `○ 未选中` / `◐ 部分选中` / `● 全部选中` 三种状态。
 
 ## 项目结构
 
 ```text
 keeptidy/
 ├── bin/
-│   └── keeptidy.js       # CLI 入口（shebang + 交互流程）
+│   └── keeptidy.js              # CLI 入口（shebang + 安装流程）
+├── src/
+│   └── prompts/
+│       └── rule-multiselect.js  # 轻量自定义规则多选界面
 ├── rules/
-│   └── KEEPTIDY.md       # 随包发布的规则文件
+│   └── KEEPTIDY.md              # 随包发布的规则文件
 ├── test/
-│   └── keeptidy.test.js  # 安装逻辑与 CLI 行为测试
+│   ├── keeptidy.test.js         # 安装逻辑与 CLI 行为测试
+│   └── rule-multiselect.test.js # 多选界面辅助逻辑测试
 ├── package.json
 ├── README.md
 ├── LICENSE
@@ -207,9 +235,10 @@ npm publish
 - 只复制，不覆盖：已有目标文件一律跳过，避免破坏用户内容。
 - `.gitignore` 只追加缺失的 `/tmp/` 规则，保留全部现有内容。
 - `AGENTS.md` 使用 `<!-- keeptidy:start -->` / `<!-- keeptidy:end -->` 标记区块，只追加一次，不覆盖原有内容。
+- 规则选择界面为轻量自定义实现（readline + picocolors），包含 Select All、固定高度描述区和操作提示；交互风格参考 `vercel-labs/skills`，不依赖其代码。
 - 交互取消（`Esc` / `Ctrl+C`）返回退出码 `0`，不会产生任何文件。
 - 非 TTY 环境（如 CI）会直接报错退出，避免卡住。
-- 使用 `@clack/prompts` 0.11.x，以兼容 Node.js 18；更新的 1.x 要求 Node.js >= 20.12。
+- `AGENTS.md`、确认、预览等其余交互使用 `@clack/prompts` 0.11.x，以兼容 Node.js 18；更新的 1.x 要求 Node.js >= 20.12。
 
 ## License
 

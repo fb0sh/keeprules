@@ -23,6 +23,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
+import {
+  CANCEL as RULE_SELECTION_CANCEL,
+  ruleMultiselect,
+} from '../src/prompts/rule-multiselect.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -229,19 +233,20 @@ async function runAdd() {
   );
   p.log.info(`安装目标: ${pc.cyan(cwd)}`);
 
-  const selection = await p.multiselect({
-    message: '选择要安装的规则（空格选择，回车确认）',
-    options: RULES.map((rule) => ({
+  const selection = await ruleMultiselect({
+    message: '选择要安装的规则',
+    items: RULES.map((rule) => ({
       value: rule.id,
       label: rule.name,
-      hint: rule.description,
+      description: rule.description,
     })),
-    initialValues: RULES.map((rule) => rule.id),
+    // Nothing is selected by default; users opt in explicitly.
+    initialSelected: [],
     required: true,
   });
 
-  if (p.isCancel(selection)) {
-    p.cancel('安装已取消');
+  if (selection === RULE_SELECTION_CANCEL) {
+    // The custom prompt renders its own cancel state.
     return 0;
   }
 
@@ -260,7 +265,7 @@ async function runAdd() {
 
   if (agentsRules.length > 0) {
     const answer = await p.confirm({
-      message: '是否在 AGENTS.md 中添加对 KEEPTIDY 的引用？',
+      message: '是否在 AGENTS.md 中添加引用？',
       initialValue: true,
     });
 
@@ -275,11 +280,14 @@ async function runAdd() {
   const previewLines = selectedRules.map(
     (rule) => `${pc.green('•')} ${pc.bold(rule.name)} → ${rule.file}`,
   );
-  if (addAgentsReference) {
-    previewLines.push(`${pc.green('•')} ${pc.bold('AGENTS.md')} → KEEPTIDY 引用区块`);
-  }
 
   p.note(previewLines.join('\n'), '即将安装');
+
+  // AGENTS.md is not a copied file, so keep it as a lightweight note rather
+  // than mixing it into the list of rule files above.
+  if (addAgentsReference) {
+    p.log.message(pc.dim('并在 AGENTS.md 中添加引用'));
+  }
 
   const confirmed = await p.confirm({
     message: `确认安装以上 ${selectedRules.length} 个规则？`,
