@@ -286,7 +286,7 @@ npm pack
 
 mkdir demo && cd demo
 npm init -y
-npm install ../keeprules-3.1.0.tgz
+npm install ../keeprules-3.1.1.tgz
 npx keeprules add
 ```
 
