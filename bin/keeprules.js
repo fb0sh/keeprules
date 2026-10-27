@@ -35,11 +35,11 @@ const LOG = {
 };
 
 /** The terminal printer the flow writes through. */
-const printer = {
+export const printer = {
   intro() {
     p.intro(`${pc.bgCyan(pc.black(' keeprules '))} ${pc.dim(`v${packageJson.version}`)}`);
     p.log.message(
-      `${pc.dim('仓库:')} ${PROJECT_URL}  ${pc.dim('作者:')} ${AUTHOR_EMAIL}`,
+      `${pc.dim('仓库:')} ${REPO_URL}  ${pc.dim('作者:')} ${AUTHOR_EMAIL}`,
     );
   },
 

@@ -134,3 +134,26 @@ test('extra positional arguments exit non-zero', () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /多余的参数/);
 });
+
+test('every printer method runs without throwing', async () => {
+  // The printer is only reachable through an interactive install, so nothing
+  // else in the suite would catch a stale identifier inside it.
+  const { printer } = await import('../bin/keeprules.js');
+
+  const write = process.stdout.write;
+  process.stdout.write = () => true;
+
+  try {
+    printer.intro();
+    printer.info('info');
+    printer.note(['a → b'], '即将安装');
+    printer.spinnerStart('正在安装规则...');
+    printer.spinnerStop('完成', false);
+    printer.report({
+      outcomes: [{ level: 'success', message: 'ok' }],
+      failures: [{ subject: 'S', message: 'boom' }],
+    });
+  } finally {
+    process.stdout.write = write;
+  }
+});
