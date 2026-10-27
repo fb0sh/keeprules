@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Local temporary workspace (see rules/KEEPTIDY.md)
+/tmp/
+
+# Test / coverage output
+coverage/
+*.log
+
+# npm pack artifacts
+*.tgz
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,36 @@
+{
+  "name": "keeptidy",
+  "version": "0.1.0",
+  "description": "Interactive installer for Coding Agent project rules.",
+  "type": "module",
+  "bin": {
+    "keeptidy": "bin/keeptidy.js"
+  },
+  "files": [
+    "bin",
+    "rules",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/keeptidy.js",
+    "test": "node --test",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "keeptidy",
+    "coding-agent",
+    "ai-agent",
+    "rules",
+    "prompt",
+    "cli",
+    "scaffold"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "picocolors": "^1.1.1"
+  }
+}
