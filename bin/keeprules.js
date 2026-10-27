@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * keepit — interactive installer for Coding Agent project rules.
+ * keeprules — interactive installer for Coding Agent project rules.
  *
  * Usage:
- *   npx keepit
- *   npx keepit add
+ *   npx keeprules
+ *   npx keeprules add
  *
  * Rules are auto-registered from `rules/*.md` frontmatter and copied into the
  * current working directory.
@@ -36,17 +36,20 @@ const packageJson = JSON.parse(
   readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'),
 );
 
+const PROJECT_URL = 'https://github.com/fb0sh/keeprules';
+const AUTHOR_EMAIL = 'fb0sh@outlook.com';
+
 /**
  * Rule registry loaded from `rules/*.md` frontmatter at startup.
  * See src/rules.js for the supported frontmatter keys.
  */
 export const RULES = loadRules(RULES_DIR);
 
-const GITIGNORE_HEADER = '# keepit: 临时目录';
+const GITIGNORE_HEADER = '# keeprules: 临时目录';
 
 const AGENTS_FILE = 'AGENTS.md';
-const AGENTS_MARKER_START = '<!-- keepit:start -->';
-const AGENTS_MARKER_END = '<!-- keepit:end -->';
+const AGENTS_MARKER_START = '<!-- keeprules:start -->';
+const AGENTS_MARKER_END = '<!-- keeprules:end -->';
 
 /**
  * Build the marked AGENTS.md block for all selected rules that opt into
@@ -203,9 +206,13 @@ export function installRule(rule, cwd) {
 
 export function printHelp() {
   const usage = [
+    `${pc.bold('keeprules')} ${pc.dim(`v${packageJson.version}`)}`,
+    `${pc.dim('仓库')}: ${PROJECT_URL}`,
+    `${pc.dim('作者')}: ${AUTHOR_EMAIL}`,
+    '',
     `${pc.bold('用法')}`,
-    `  ${pc.cyan('$ keepit')}          ${pc.dim('# 进入交互式安装')}`,
-    `  ${pc.cyan('$ keepit add')}      ${pc.dim('# 同上')}`,
+    `  ${pc.cyan('$ keeprules')}          ${pc.dim('# 进入交互式安装')}`,
+    `  ${pc.cyan('$ keeprules add')}      ${pc.dim('# 同上')}`,
     '',
     `${pc.bold('选项')}`,
     `  ${pc.cyan('-h, --help')}         显示帮助`,
@@ -225,7 +232,10 @@ async function runAdd() {
   const cwd = process.cwd();
 
   p.intro(
-    `${pc.bgCyan(pc.black(' keepit '))} ${pc.dim(`v${packageJson.version}`)}`,
+    `${pc.bgCyan(pc.black(' keeprules '))} ${pc.dim(`v${packageJson.version}`)}`,
+  );
+  p.log.message(
+    `${pc.dim('仓库:')} ${PROJECT_URL}  ${pc.dim('作者:')} ${AUTHOR_EMAIL}`,
   );
   p.log.info(`安装目标: ${pc.cyan(cwd)}`);
 
@@ -350,7 +360,7 @@ async function runAdd() {
   } else if (agentsResult?.status === 'appended') {
     p.log.success('已向 AGENTS.md 追加规则引用');
   } else if (agentsResult?.status === 'exists') {
-    p.log.info('AGENTS.md 中已存在 keepit 引用');
+    p.log.info('AGENTS.md 中已存在 keeprules 引用');
   }
 
   if (agentsRules.length > 0 && !addAgentsReference) {
@@ -367,7 +377,7 @@ async function runAdd() {
   }
 
   p.outro(
-    `${pc.green('完成！')} 规则已就绪，请让 Coding Agent 阅读项目中的规则文件。`,
+    `${pc.green('完成！')} 规则已就绪。${pc.dim(`仓库: ${PROJECT_URL}`)}`,
   );
   return 0;
 }
@@ -400,14 +410,14 @@ export async function main(argv = process.argv.slice(2)) {
 
   if (unknownFlag) {
     console.error(pc.red(`✖ 未知选项: ${unknownFlag}`));
-    console.error(pc.dim('运行 `keepit --help` 查看用法。'));
+    console.error(pc.dim('运行 `keeprules --help` 查看用法。'));
     return 1;
   }
 
   const command = positional[0];
   if (command !== undefined && command !== 'add') {
     console.error(pc.red(`✖ 未知命令: ${command}`));
-    console.error(pc.dim('运行 `keepit --help` 查看用法。'));
+    console.error(pc.dim('运行 `keeprules --help` 查看用法。'));
     return 1;
   }
 
@@ -418,7 +428,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error(pc.red('✖ 需要交互式终端才能运行安装向导。'));
-    console.error(pc.dim('请在本地终端中执行 `npx keepit add`。'));
+    console.error(pc.dim('请在本地终端中执行 `npx keeprules add`。'));
     return 1;
   }
 

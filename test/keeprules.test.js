@@ -18,28 +18,28 @@ import {
   ensureGitignoreTmp,
   hasTmpIgnoreRule,
   installRule,
-} from '../bin/keepit.js';
+} from '../bin/keeprules.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
-const BIN = path.join(ROOT, 'bin', 'keepit.js');
+const BIN = path.join(ROOT, 'bin', 'keeprules.js');
 const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
 const KEEPTIDY = RULES.find((rule) => rule.id === 'keeptidy');
 const KEEPSECURED = RULES.find((rule) => rule.id === 'keepsecured');
 
 const AGENTS_KEEPTIDY_BLOCK = [
-  '<!-- keepit:start -->',
+  '<!-- keeprules:start -->',
   '## KEEPTIDY',
   '',
   'Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
   '',
   'These rules are mandatory for all Coding Agents working in this repository.',
-  '<!-- keepit:end -->',
+  '<!-- keeprules:end -->',
 ].join('\n') + '\n';
 
 const AGENTS_BOTH_BLOCK = [
-  '<!-- keepit:start -->',
+  '<!-- keeprules:start -->',
   '## KEEPSECURED',
   '',
   'Follow the KEEPSECURED rules defined in [KEEPSECURED.md](./KEEPSECURED.md).',
@@ -49,13 +49,13 @@ const AGENTS_BOTH_BLOCK = [
   'Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).',
   '',
   'These rules are mandatory for all Coding Agents working in this repository.',
-  '<!-- keepit:end -->',
+  '<!-- keeprules:end -->',
 ].join('\n') + '\n';
 
 /** Create a disposable project directory inside the repository tmp/. */
 function workspace() {
   mkdirSync(TMP_ROOT, { recursive: true });
-  return mkdtempSync(path.join(TMP_ROOT, 'keepit-test-'));
+  return mkdtempSync(path.join(TMP_ROOT, 'keeprules-test-'));
 }
 
 function withWorkspace(fn) {
@@ -87,7 +87,7 @@ test('installRule copies the rule file and creates .gitignore with /tmp/', () =>
     assert.match(readFileSync(path.join(dir, 'KEEPTIDY.md'), 'utf8'), /KEEPTIDY/);
     assert.equal(
       readFileSync(path.join(dir, '.gitignore'), 'utf8'),
-      '# keepit: 临时目录\n/tmp/\n',
+      '# keeprules: 临时目录\n/tmp/\n',
     );
     assert.equal(existsSync(path.join(dir, 'AGENTS.md')), false);
   });
@@ -127,7 +127,7 @@ test('existing .gitignore rules are preserved when /tmp/ is appended', () => {
 
     assert.equal(result.status, 'updated');
     assert.ok(content.startsWith('node_modules\n*.log\n'));
-    assert.ok(content.endsWith('# keepit: 临时目录\n/tmp/\n'));
+    assert.ok(content.endsWith('# keeprules: 临时目录\n/tmp/\n'));
   });
 });
 
@@ -230,6 +230,8 @@ test('--help prints usage and auto-loaded rules', () => {
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /用法/);
+  assert.match(result.stdout, /https:\/\/github\.com\/fb0sh\/keeprules/);
+  assert.match(result.stdout, /fb0sh@outlook\.com/);
   assert.match(result.stdout, /KEEPTIDY\.md/);
   assert.match(result.stdout, /KEEPSECURED\.md/);
 });

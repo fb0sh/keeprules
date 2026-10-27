@@ -1,10 +1,19 @@
 {
-  "name": "keepit",
+  "name": "keeprules",
   "version": "0.1.0",
   "description": "Interactive installer for Coding Agent project rules.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fb0sh/keeprules.git"
+  },
+  "homepage": "https://github.com/fb0sh/keeprules#readme",
+  "bugs": {
+    "url": "https://github.com/fb0sh/keeprules/issues"
+  },
+  "author": "fb0sh <fb0sh@outlook.com>",
   "type": "module",
   "bin": {
-    "keepit": "bin/keepit.js"
+    "keeprules": "bin/keeprules.js"
   },
   "files": [
     "bin",
@@ -16,12 +25,12 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node bin/keepit.js",
+    "start": "node bin/keeprules.js",
     "test": "node --test",
     "prepublishOnly": "npm test"
   },
   "keywords": [
-    "keepit",
+    "keeprules",
     "coding-agent",
     "ai-agent",
     "rules",

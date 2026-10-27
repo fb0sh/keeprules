@@ -15,7 +15,7 @@ const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 
 function withRulesDir(fn) {
   mkdirSync(TMP_ROOT, { recursive: true });
-  const dir = mkdtempSync(path.join(TMP_ROOT, 'keepit-rules-'));
+  const dir = mkdtempSync(path.join(TMP_ROOT, 'keeprules-rules-'));
   try {
     fn(dir);
   } finally {

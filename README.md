@@ -1,6 +1,9 @@
-# keepit
+# keeprules
 
 交互式安装 Coding Agent 规则文件的 CLI 工具。
+
+- 仓库：https://github.com/fb0sh/keeprules
+- 作者：fb0sh@outlook.com
 
 在项目根目录执行一条命令，即可通过多选界面把需要的规则文件复制到当前项目，并自动补齐 `.gitignore`、AGENTS.md 引用等基础设施配置。
 
@@ -8,13 +11,11 @@
 
 ```bash
 # 在目标项目根目录执行（两种写法行为相同）
-npx keepit add
-npx keepit
+npx keeprules add
+npx keeprules
 ```
 
 要求：Node.js >= 18，且需要在交互式终端中运行。
-
-> `keepit` 这个 npm 包名目前已被其他维护者占用。若要从 npm 发布和安装，请使用 scope，例如 `@your-name/keepit`；本地开发和 `npm link` 不受影响。
 
 ## 它会做什么
 
@@ -38,7 +39,7 @@ npx keepit
 `KEEPTIDY` 会确保项目 `.gitignore` 包含：
 
 ```gitignore
-# keepit: 临时目录
+# keeprules: 临时目录
 /tmp/
 ```
 
@@ -83,7 +84,7 @@ postInstall:
 默认选择 Yes，也可以拒绝。同意后会以标记区块追加引用；如果同时选择多个规则，会合并到同一个区块：
 
 ```markdown
-<!-- keepit:start -->
+<!-- keeprules:start -->
 ## KEEPSECURED
 
 Follow the KEEPSECURED rules defined in [KEEPSECURED.md](./KEEPSECURED.md).
@@ -93,14 +94,14 @@ Follow the KEEPSECURED rules defined in [KEEPSECURED.md](./KEEPSECURED.md).
 Follow the KEEPTIDY rules defined in [KEEPTIDY.md](./KEEPTIDY.md).
 
 These rules are mandatory for all Coding Agents working in this repository.
-<!-- keepit:end -->
+<!-- keeprules:end -->
 ```
 
 写入规则：
 
 - `AGENTS.md` 不存在：创建文件并写入区块。
-- 已存在但没有 `<!-- keepit:start -->`：在文件末尾追加，并与原内容之间保留一个空行。
-- 已存在标记区块：跳过，并提示「AGENTS.md 中已存在 keepit 引用」。
+- 已存在但没有 `<!-- keeprules:start -->`：在文件末尾追加，并与原内容之间保留一个空行。
+- 已存在标记区块：跳过，并提示「AGENTS.md 中已存在 keeprules 引用」。
 - 用户拒绝：跳过，不修改 `AGENTS.md`。
 
 用户已有的 `AGENTS.md` 内容不会被覆盖。
@@ -108,10 +109,10 @@ These rules are mandatory for all Coding Agents working in this repository.
 ## 命令行选项
 
 ```bash
-keepit            # 进入交互式安装（默认不选中任何规则）
-keepit add        # 同上
-keepit --help     # 显示帮助
-keepit --version  # 显示版本
+keeprules            # 进入交互式安装（默认不选中任何规则）
+keeprules add        # 同上
+keeprules --help     # 显示帮助
+keeprules --version  # 显示版本
 ```
 
 多选快捷键：`↑↓` 移动光标，`空格` 切换选中 / Select All，`a` 快捷全选，`回车` 确认，`Esc` / `Ctrl+C` 取消。
@@ -142,9 +143,9 @@ keepit --version  # 显示版本
 ## 项目结构
 
 ```text
-keepit/
+keeprules/
 ├── bin/
-│   └── keepit.js                # CLI 入口（shebang + 安装流程）
+│   └── keeprules.js                # CLI 入口（shebang + 安装流程）
 ├── src/
 │   ├── rules.js                 # rules/*.md 扫描与 frontmatter 解析
 │   └── prompts/
@@ -153,7 +154,7 @@ keepit/
 │   ├── KEEPSECURED.md           # 随包发布的安全规则
 │   └── KEEPTIDY.md              # 随包发布的工程卫生规则
 ├── test/
-│   ├── keepit.test.js           # 安装逻辑与 CLI 行为测试
+│   ├── keeprules.test.js           # 安装逻辑与 CLI 行为测试
 │   ├── rules.test.js            # 自动注册与 frontmatter 测试
 │   └── rule-multiselect.test.js # 多选界面辅助逻辑测试
 ├── package.json
@@ -165,41 +166,41 @@ keepit/
 ## 本地开发与测试
 
 ```bash
-git clone <repo-url> keepit
-cd keepit
+git clone https://github.com/fb0sh/keeprules.git keeprules
+cd keeprules
 npm install
 
 npm test                        # 运行测试
-node bin/keepit.js --help       # 直接运行 CLI
-node bin/keepit.js --version
+node bin/keeprules.js --help       # 直接运行 CLI
+node bin/keeprules.js --version
 ```
 
 ### 方式一：npm link（推荐调试 CLI）
 
 ```bash
-# 在 keepit 仓库内
+# 在 keeprules 仓库内
 npm link
 
 # 换到任意测试项目
 cd /path/to/your-project
-keepit add
+keeprules add
 
 # 不再需要时解除全局链接
-npm unlink -g keepit
+npm unlink -g keeprules
 ```
 
 ### 方式二：npm pack（模拟真实安装）
 
 ```bash
-# 在 keepit 仓库内
+# 在 keeprules 仓库内
 npm pack
-# 生成 keepit-0.1.0.tgz
+# 生成 keeprules-0.1.0.tgz
 
 # 在临时测试项目中安装
 mkdir demo && cd demo
 npm init -y
-npm install ../keepit-0.1.0.tgz
-npx keepit add
+npm install ../keeprules-0.1.0.tgz
+npx keeprules add
 ```
 
 也可以先检查发布内容，确认只包含需要的文件：
@@ -214,23 +215,35 @@ npm pack --dry-run
 
 ```bash
 npm test
-npm whoami                 # 未登录时先执行 npm login
-npm view keepit version    # 注意：当前已被其他维护者占用
-npm pack --dry-run         # 检查打包内容
-npm publish --dry-run      # 发布预演
+npm whoami                   # 未登录时先执行 npm login
+npm view keeprules version   # 404 表示包名尚未被占用
+npm pack --dry-run           # 检查打包内容
+npm publish --dry-run        # 发布预演
 ```
 
-由于 `keepit` 已被占用，正式发布建议使用 scope：
+正式发布：
+
+```bash
+npm publish
+```
+
+发布后验证：
+
+```bash
+npx keeprules@latest --version
+```
+
+如果名称日后被占用，可改用 scope：
 
 ```json
 {
-  "name": "@your-name/keepit"
+  "name": "@fb0sh/keeprules"
 }
 ```
 
 ```bash
 npm publish --access public
-npx @your-name/keepit add
+npx @fb0sh/keeprules add
 ```
 
 若账号启用了两步验证，发布时按提示传入 `--otp=<code>`。
@@ -249,14 +262,14 @@ npm publish
 2. 在文件顶部添加 frontmatter（`id`、`name`、`description`、`postInstall`）。
 3. 运行 `npm test` 和 `npm pack --dry-run`，确认新文件会被发布。
 
-无需修改 `bin/keepit.js`，CLI 会自动发现并注册新规则。
+无需修改 `bin/keeprules.js`，CLI 会自动发现并注册新规则。
 
 ## 设计约定
 
 - 规则由 `rules/*.md` + frontmatter 自动注册，新增规则不需要改代码。
 - 只复制，不覆盖：已有目标文件一律跳过，避免破坏用户内容。
 - `.gitignore` 只追加缺失的 `/tmp/` 规则，保留全部现有内容。
-- `AGENTS.md` 使用 `<!-- keepit:start -->` / `<!-- keepit:end -->` 标记区块，只追加一次，不覆盖原有内容。
+- `AGENTS.md` 使用 `<!-- keeprules:start -->` / `<!-- keeprules:end -->` 标记区块，只追加一次，不覆盖原有内容。
 - 规则选择界面为轻量自定义实现（readline + picocolors），包含 Select All、固定高度描述区和操作提示；交互风格参考 `vercel-labs/skills`，不依赖其代码。
 - 交互取消（`Esc` / `Ctrl+C`）返回退出码 `0`，不会产生任何文件。
 - 非 TTY 环境（如 CI）会直接报错退出，避免卡住。
