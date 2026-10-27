@@ -62,6 +62,7 @@ project/
 
 | 规则 | 安装路径 | 说明 |
 | --- | --- | --- |
+| `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（复用优先、最小改动面、精简不越安全底线） |
 | `KEEPTIDY` | `rules/KEEPTIDY.md` | 工程卫生与资源管理（临时目录、Git 安全、进程清理、破坏性操作检查点） |
 | `KEEPSECURED` | `rules/KEEPSECURED.md` | 安全与敏感信息保护（凭证、日志脱敏、禁止外传、生产环境约束） |
 
@@ -217,7 +218,7 @@ npm pack
 
 mkdir demo && cd demo
 npm init -y
-npm install ../keeprules-1.0.0.tgz
+npm install ../keeprules-2.0.0.tgz
 npx keeprules add
 ```
 

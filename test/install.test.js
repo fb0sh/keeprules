@@ -419,12 +419,17 @@ test('the repository rules install correctly end to end', () => {
     });
 
     assert.deepEqual(report.failures, []);
-    assert.deepEqual(readdirSync(path.join(project, 'rules')).sort(), [
-      'KEEPSECURED.md',
-      'KEEPTIDY.md',
-    ]);
+    // Derived from the repository, so adding a rule does not break this test.
+    assert.deepEqual(
+      readdirSync(path.join(project, 'rules')).sort(),
+      rules.map((rule) => rule.file).sort(),
+    );
     assert.equal(read(project, '.gitignore'), '# keeprules: 临时目录\n/tmp/\n');
-    assert.ok(read(project, 'AGENTS.md').includes('rules/KEEPTIDY.md'));
+
+    const agents = read(project, 'AGENTS.md');
+    for (const rule of rules) {
+      assert.ok(agents.includes(ruleTargetPath(rule)), rule.file);
+    }
   });
 });
 
