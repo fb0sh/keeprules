@@ -1,30 +1,22 @@
 /**
- * Rule discovery and frontmatter parsing.
+ * Rule parsing.
  *
- * Rules are plain Markdown files in `rules/`. Metadata is declared with a
- * small YAML frontmatter subset so adding a rule only requires adding a file.
+ * A rule is a Markdown file with a small YAML frontmatter subset. This module
+ * turns file contents into rule records and rejects a bad set — it never reads
+ * the disk or the network, so it is driven by whatever the caller fetched.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
-
-/**
- * Compare two strings by code point.
- *
- * `localeCompare` is deliberately avoided: its ordering depends on the host
- * locale and ICU build, so the picker would list rules in a different order on
- * different machines. Code point order is stable everywhere.
- */
-function compareCodePoints(a, b) {
+/** Compare by code point: stable across platforms and locales. */
+function byCodePoint(a, b) {
   if (a === b) return 0;
   return a < b ? -1 : 1;
 }
 
 /** Parse a quoted or plain YAML scalar. */
-function parseScalar(rawValue) {
-  const value = rawValue.trim();
+function parseScalar(raw) {
+  const value = raw.trim();
 
   if (value === '') return '';
   if (value === 'null' || value === '~') return null;
@@ -56,41 +48,34 @@ function parseScalar(rawValue) {
 }
 
 /**
- * Parse the YAML subset used by rule frontmatter:
- * - `key: value`
- * - `key:` followed by `  - item` list entries
- * - inline arrays
+ * Parse the YAML subset used by frontmatter:
+ *   key: value
+ *   key:
+ *     - item
+ *   key: [a, b]
  *
- * Unsupported/complex YAML is intentionally ignored rather than executed.
+ * Anything more complex is ignored rather than executed.
  */
-function parseSimpleYaml(text) {
+function parseYaml(text) {
   const data = {};
-  let currentKey = null;
+  let key = null;
 
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(/\s+$/, '');
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim() || line.trim().startsWith('#')) continue;
 
-    if (!line.trim() || line.trim().startsWith('#')) {
+    const item = /^\s*-\s*(.*)$/.exec(line);
+    if (item && key) {
+      if (!Array.isArray(data[key])) data[key] = [];
+      data[key].push(parseScalar(item[1]));
       continue;
     }
 
-    const listItem = /^\s*-\s*(.*)$/.exec(line);
-    if (listItem && currentKey) {
-      if (!Array.isArray(data[currentKey])) {
-        data[currentKey] = [];
-      }
-      data[currentKey].push(parseScalar(listItem[1]));
-      continue;
-    }
+    const pair = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+    if (!pair) continue;
 
-    const keyValue = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
-    if (!keyValue) {
-      continue;
-    }
-
-    const [, key, rawValue] = keyValue;
-    currentKey = key;
-    data[key] = rawValue === '' ? null : parseScalar(rawValue);
+    [, key] = pair;
+    data[key] = pair[2] === '' ? null : parseScalar(pair[2]);
   }
 
   return data;
@@ -98,39 +83,29 @@ function parseSimpleYaml(text) {
 
 /** Split frontmatter from the Markdown body. */
 function parseFrontmatter(content) {
-  const normalized = String(content).replace(/^\uFEFF/, '');
-  const match = FRONTMATTER_PATTERN.exec(normalized);
+  const text = String(content).replace(/^\uFEFF/, '');
+  const match = FRONTMATTER.exec(text);
 
-  if (!match) {
-    return { data: {}, body: normalized };
-  }
+  if (!match) return { data: {}, body: text };
 
-  return {
-    data: parseSimpleYaml(match[1]),
-    body: normalized.slice(match[0].length),
-  };
+  return { data: parseYaml(match[1]), body: text.slice(match[0].length) };
 }
 
 /** Use the first meaningful Markdown line when no description is declared. */
-function fallbackDescription(body) {
+function firstLine(body) {
   const line = body
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .find((entry) => entry && !entry.startsWith('<!--'));
 
-  if (!line) return '';
-  return line.replace(/^#+\s*/, '').trim();
+  return line ? line.replace(/^#+\s*/, '').trim() : '';
 }
 
-function asString(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
+const asString = (value) => (typeof value === 'string' ? value.trim() : '');
 
-function asStringArray(value) {
+function asList(value) {
   if (Array.isArray(value)) {
-    return value
-      .map((entry) => asString(entry))
-      .filter((entry) => entry !== '');
+    return value.map(asString).filter((entry) => entry !== '');
   }
 
   const single = asString(value);
@@ -138,82 +113,61 @@ function asStringArray(value) {
 }
 
 /**
- * Reject rule file names that map to the same file on a case-insensitive
- * filesystem (default on macOS and Windows).
+ * Reject names that would be the same file on a case-insensitive disk.
  *
- * Without this check such a pair installs silently wrong: the second copy
- * collides with the first, is reported as "already exists", and AGENTS.md ends
- * up linking the same file twice.
+ * macOS and Windows do not distinguish `RULE.md` from `rule.md`, so such a pair
+ * writes one file twice and the reference block links it under two names.
  */
-function assertNoFileNameCollisions(fileNames) {
+function assertDistinctFiles(files) {
   const seen = new Map();
 
-  for (const fileName of fileNames) {
-    const key = fileName.toLowerCase();
+  for (const file of files) {
+    const key = file.toLowerCase();
+
     if (seen.has(key)) {
       throw new Error(
-        `规则文件名大小写冲突: "${seen.get(key)}" 与 "${fileName}"。` +
+        `规则文件名大小写冲突: "${seen.get(key)}" 与 "${file}"。` +
           'macOS 与 Windows 的文件系统默认不区分大小写，这两个规则会写入同一个文件。请重命名其中一个。',
       );
     }
-    seen.set(key, fileName);
+
+    seen.set(key, file);
   }
 }
 
 /**
- * Read every `.md` file in `rulesDir` and build the rule registry.
+ * Build the rule registry from file contents.
  *
- * Files without frontmatter still work: id and name fall back to the file
- * basename, and description falls back to the first Markdown line.
- *
- * @param {string} rulesDir absolute path to the rules directory
- * @param {{fileNames?: string[]}} [options] `fileNames` overrides the scan; it
- *   exists so the case-collision check can be exercised on a filesystem that
- *   cannot hold colliding names in the first place.
- * @returns {{id: string, name: string, description: string, file: string, sourcePath: string, postInstall: string[]}[]}
+ * @param {{file: string, content: string}[]} files rule files, already fetched
+ * @returns {{id: string, name: string, description: string, file: string, content: string, postInstall: string[]}[]}
  */
-export function loadRules(rulesDir, { fileNames: overrideNames } = {}) {
-  const fileNames = (
-    overrideNames ??
-    readdirSync(rulesDir, { withFileTypes: true })
-      .filter(
-        (entry) =>
-          entry.isFile() &&
-          entry.name.toLowerCase().endsWith('.md') &&
-          !entry.name.startsWith('.'),
-      )
-      .map((entry) => entry.name)
-  ).sort(compareCodePoints);
+export function loadRules(files) {
+  const markdown = files
+    .filter((entry) => entry.file.toLowerCase().endsWith('.md'))
+    .sort((a, b) => byCodePoint(a.file, b.file));
 
-  assertNoFileNameCollisions(fileNames);
+  assertDistinctFiles(markdown.map((entry) => entry.file));
 
   const rules = [];
-  const seenIds = new Map();
+  const seen = new Map();
 
-  for (const fileName of fileNames) {
-    const sourcePath = path.join(rulesDir, fileName);
-    const content = readFileSync(sourcePath, 'utf8');
+  for (const { file, content } of markdown) {
     const { data, body } = parseFrontmatter(content);
-    const baseName = path.basename(fileName, path.extname(fileName));
-    const id = asString(data.id) || baseName;
-    const name = asString(data.name) || baseName;
-    const description = asString(data.description) || fallbackDescription(body);
-    const postInstall = asStringArray(data.postInstall);
+    const base = file.replace(/\.md$/i, '');
+    const id = asString(data.id) || base;
 
-    if (seenIds.has(id)) {
-      throw new Error(
-        `规则 id 重复: "${id}"（${fileName} 与 ${seenIds.get(id)}）`,
-      );
+    if (seen.has(id)) {
+      throw new Error(`规则 id 重复: "${id}"（${file} 与 ${seen.get(id)}）`);
     }
-    seenIds.set(id, fileName);
+    seen.set(id, file);
 
     rules.push({
       id,
-      name,
-      description,
-      file: fileName,
-      sourcePath,
-      postInstall,
+      name: asString(data.name) || base,
+      description: asString(data.description) || firstLine(body),
+      file,
+      content,
+      postInstall: asList(data.postInstall),
     });
   }
 

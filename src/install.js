@@ -8,7 +8,6 @@
  */
 
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -281,12 +280,12 @@ function claimTargets(rules) {
   return { installable, failures };
 }
 
-/** Copy one rule file, unless it is already there. */
-function copyRule(rule, cwd) {
+/** Write one rule file, unless it is already there. */
+function writeRule(rule, cwd) {
   assertKnownSteps(rule.postInstall ?? [], `规则 ${rule.file}`);
 
-  if (!rule.sourcePath || !existsSync(rule.sourcePath)) {
-    throw new Error(`规则文件缺失: ${rule.sourcePath ?? rule.file}`);
+  if (typeof rule.content !== 'string') {
+    throw new Error(`规则内容缺失: ${rule.file}`);
   }
 
   const relative = ruleTargetPath(rule);
@@ -300,7 +299,7 @@ function copyRule(rule, cwd) {
   }
 
   mkdirSync(path.dirname(target), { recursive: true });
-  copyFileSync(rule.sourcePath, target);
+  writeFileSync(target, rule.content, 'utf8');
 
   return { level: 'success', message: `${rule.name} → ${relative}` };
 }
@@ -335,7 +334,7 @@ export function installSelection({ rules, cwd, confirmed = [] }) {
 
   for (const rule of claim.installable) {
     try {
-      outcomes.push(copyRule(rule, cwd));
+      outcomes.push(writeRule(rule, cwd));
       installed.push(rule);
     } catch (error) {
       failures.push({ subject: rule.name, message: error.message });

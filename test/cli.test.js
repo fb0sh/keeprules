@@ -25,15 +25,14 @@ function runCli(args, options = {}) {
   });
 }
 
-test('--help prints usage, project info, and auto-loaded rules', () => {
+test('--help prints usage and points at the rule source', () => {
   const result = runCli(['--help']);
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /用法/);
   assert.match(result.stdout, /https:\/\/github\.com\/fb0sh\/keeprules/);
   assert.match(result.stdout, /fb0sh@outlook\.com/);
-  assert.match(result.stdout, /KEEPTIDY\.md/);
-  assert.match(result.stdout, /KEEPSECURED\.md/);
+  assert.match(result.stdout, /需要联网/);
 });
 
 test('--version prints the package version', () => {
@@ -60,16 +59,18 @@ test('add refuses to start without a TTY', () => {
   assert.match(result.stderr, /需要交互式终端/);
 });
 
-test('--help lists every rule under its install path', () => {
-  const result = runCli(['--help']);
+test('--help and --version never touch the network', () => {
+  // Rules are fetched only for `add`; these two must stay instant and offline.
+  for (const args of [['--help'], ['--version']]) {
+    const result = runCli(args, { env: { NO_NETWORK: '1' } });
 
-  assert.match(result.stdout, /rules\/KEEPTIDY\.md/);
-  assert.match(result.stdout, /rules\/KEEPSECURED\.md/);
+    assert.equal(result.status, 0, args.join(' '));
+    assert.equal(result.stderr, '', args.join(' '));
+  }
 });
 
-test('an unknown postInstall step is rejected at startup', () => {
-  // bin validates every rule's postInstall names against the installed steps
-  // during module load, so a typo in a rule file fails before any prompt.
+test('an unknown postInstall step is rejected when a rule is installed', () => {
+  // The name is validated by the install module, against the steps it ships.
   const result = spawnSync(
     process.execPath,
     [

@@ -1,193 +1,129 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { loadRules } from '../src/rules.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
+/** Build the `{file, content}` entries the loader expects. */
+const files = (...pairs) => pairs.map(([file, content]) => ({ file, content }));
 
-function withRulesDir(fn) {
-  mkdirSync(TMP_ROOT, { recursive: true });
-  const dir = mkdtempSync(path.join(TMP_ROOT, 'keeprules-rules-'));
-  try {
-    fn(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
+const frontmatter = (body, fm) => `---\n${fm}\n---\n${body}`;
 
 test('frontmatter drives the rule record, and the body is ignored', () => {
-  withRulesDir((dir) => {
-    writeFileSync(
-      path.join(dir, 'DEMO.md'),
-      [
-        '---',
-        'id: demo',
-        'name: DEMO',
-        'description: "Demo rule"',
-        'postInstall:',
-        '  - gitignore',
-        '  - agents',
-        '---',
-        '',
-        '# Demo',
-        '',
-        'Body text.',
-      ].join('\n'),
-    );
+  const [rule] = loadRules(
+    files([
+      'DEMO.md',
+      frontmatter(
+        '\n# Demo\n\nBody text.',
+        [
+          'id: demo',
+          'name: DEMO',
+          'description: "Demo rule"',
+          'postInstall:',
+          '  - gitignore',
+          '  - agents',
+        ].join('\n'),
+      ),
+    ]),
+  );
 
-    const [rule] = loadRules(dir);
-
-    assert.equal(rule.id, 'demo');
-    assert.equal(rule.name, 'DEMO');
-    assert.equal(rule.description, 'Demo rule');
-    assert.deepEqual(rule.postInstall, ['gitignore', 'agents']);
-  });
+  assert.equal(rule.id, 'demo');
+  assert.equal(rule.name, 'DEMO');
+  assert.equal(rule.description, 'Demo rule');
+  assert.deepEqual(rule.postInstall, ['gitignore', 'agents']);
+  assert.equal(rule.file, 'DEMO.md');
 });
 
 test('frontmatter accepts inline arrays and ignores comments', () => {
-  withRulesDir((dir) => {
-    writeFileSync(
-      path.join(dir, 'INLINE.md'),
-      [
-        '---',
-        '# metadata',
-        'id: inline',
-        'postInstall: [gitignore, agents]',
-        '---',
-        '# Inline',
-      ].join('\n'),
-    );
+  const [rule] = loadRules(
+    files([
+      'INLINE.md',
+      frontmatter('# Inline', ['# metadata', 'id: inline', 'postInstall: [gitignore, agents]'].join('\n')),
+    ]),
+  );
 
-    assert.deepEqual(loadRules(dir)[0].postInstall, ['gitignore', 'agents']);
+  assert.deepEqual(rule.postInstall, ['gitignore', 'agents']);
+});
+
+test('a file without frontmatter still becomes a rule', () => {
+  const [rule] = loadRules(files(['BARE.md', '# Bare title\n\nBody.\n']));
+
+  assert.deepEqual(rule, {
+    id: 'BARE',
+    name: 'BARE',
+    description: 'Bare title',
+    file: 'BARE.md',
+    content: '# Bare title\n\nBody.\n',
+    postInstall: [],
   });
 });
 
-test('loadRules auto-registers Markdown files and falls back without frontmatter', () => {
-  withRulesDir((dir) => {
-    writeFileSync(
-      path.join(dir, 'B_RULE.md'),
-      [
-        '---',
-        'id: beta',
-        'name: BETA',
-        'description: Beta description',
-        'postInstall:',
-        '  - agents',
-        '---',
-        '',
-        '# BETA',
-      ].join('\n'),
-    );
-    writeFileSync(path.join(dir, 'A_RULE.md'), '# Alpha title\n\nBody.\n');
-    writeFileSync(path.join(dir, 'IGNORED.txt'), 'not a rule');
-    writeFileSync(path.join(dir, '.hidden.md'), '# Hidden');
+test('the body first line is skipped when it is a comment', () => {
+  const [rule] = loadRules(files(['X.md', '<!-- note -->\n# Real title\n']));
 
-    const rules = loadRules(dir);
-
-    assert.deepEqual(
-      rules.map((rule) => rule.file),
-      ['A_RULE.md', 'B_RULE.md'],
-    );
-
-    assert.deepEqual(rules[0], {
-      id: 'A_RULE',
-      name: 'A_RULE',
-      description: 'Alpha title',
-      file: 'A_RULE.md',
-      sourcePath: path.join(dir, 'A_RULE.md'),
-      postInstall: [],
-    });
-
-    assert.deepEqual(rules[1], {
-      id: 'beta',
-      name: 'BETA',
-      description: 'Beta description',
-      file: 'B_RULE.md',
-      sourcePath: path.join(dir, 'B_RULE.md'),
-      postInstall: ['agents'],
-    });
-  });
+  assert.equal(rule.description, 'Real title');
 });
 
-test('loadRules rejects duplicate rule ids with a clear error', () => {
-  withRulesDir((dir) => {
-    const frontmatter = '---\nid: duplicate\nname: DUPLICATE\n---\n# Duplicate\n';
-    writeFileSync(path.join(dir, 'ONE.md'), frontmatter);
-    writeFileSync(path.join(dir, 'TWO.md'), frontmatter);
+test('postInstall is kept as written; the install module validates the names', () => {
+  const [rule] = loadRules(
+    files(['BROKEN.md', frontmatter('# BROKEN', 'postInstall:\n  - gitignroe')]),
+  );
 
-    assert.throws(() => loadRules(dir), /规则 id 重复: "duplicate"/);
-  });
+  assert.deepEqual(rule.postInstall, ['gitignroe']);
 });
 
-test('loadRules reports postInstall as written; the shell validates the names', () => {
-  withRulesDir((dir) => {
-    writeFileSync(
-      path.join(dir, 'BROKEN.md'),
-      [
-        '---',
-        'id: broken',
-        'name: BROKEN',
-        'postInstall:',
-        '  - gitignroe',
-        '---',
-        '# BROKEN',
-      ].join('\n'),
-    );
+test('rules are ordered by code point, the same on every host', () => {
+  const rules = loadRules(
+    files(['beta.md', '# b'], ['ALPHA.md', '# a'], ['gamma.md', '# g']),
+  );
 
-    // Discovery stays independent of the install module; the unknown name is
-    // caught by bin at startup (see cli.test.js).
-    assert.deepEqual(loadRules(dir)[0].postInstall, ['gitignroe']);
-  });
+  assert.deepEqual(rules.map((rule) => rule.file), ['ALPHA.md', 'beta.md', 'gamma.md']);
 });
 
-test('loadRules accepts distinctly named rule files', () => {
-  withRulesDir((dir) => {
-    writeFileSync(
-      path.join(dir, 'UPPER.md'),
-      '---\nid: upper\nname: UPPER\n---\n# UPPER\n',
-    );
-    writeFileSync(
-      path.join(dir, 'lower.md'),
-      '---\nid: lower\nname: LOWER\n---\n# LOWER\n',
-    );
+test('non-Markdown entries are ignored', () => {
+  const rules = loadRules(
+    files(['index.json', '{"files":[]}'], ['REAL.md', '# Real']),
+  );
 
-    // The collision itself is covered by the pure file-name check below,
-    // because a case-insensitive filesystem cannot even hold both files.
-    assert.deepEqual(
-      loadRules(dir).map((rule) => rule.id),
-      ['upper', 'lower'],
-    );
-  });
+  assert.deepEqual(rules.map((rule) => rule.file), ['REAL.md']);
 });
 
-test('loadRules orders rules the same way on every host', () => {
-  withRulesDir((dir) => {
-    for (const file of ['beta.md', 'ALPHA.md', 'gamma.md']) {
-      writeFileSync(path.join(dir, file), `# ${file}\n`);
-    }
+test('duplicate ids are rejected with both file names', () => {
+  const duplicate = frontmatter('# D', 'id: duplicate');
 
-    // Code point order, not locale order: uppercase sorts before lowercase.
-    assert.deepEqual(
-      loadRules(dir).map((rule) => rule.file),
-      ['ALPHA.md', 'beta.md', 'gamma.md'],
-    );
-  });
+  assert.throws(
+    () => loadRules(files(['ONE.md', duplicate], ['TWO.md', duplicate])),
+    /规则 id 重复: "duplicate"（TWO\.md 与 ONE\.md）/,
+  );
 });
 
-test('loadRules rejects rule files that collide on case-insensitive filesystems', () => {
-  withRulesDir((dir) => {
-    // A case-insensitive filesystem cannot hold both names, so the collision is
-    // asserted by listing the names the scan would see rather than by creating
-    // two files that macOS and Windows would silently merge.
-    writeFileSync(path.join(dir, 'RULE.md'), '# UPPER\n');
+test('file names that differ only by case are rejected', () => {
+  assert.throws(
+    () => loadRules(files(['RULE.md', '# a'], ['rule.md', '# b'])),
+    /大小写冲突: "RULE\.md" 与 "rule\.md"/,
+  );
+});
 
-    assert.throws(
-      () => loadRules(dir, { fileNames: ['RULE.md', 'rule.md'] }),
-      /大小写冲突: "RULE.md" 与 "rule.md"/,
-    );
-  });
+test('a byte-order mark does not break frontmatter', () => {
+  const [rule] = loadRules(
+    files(['BOM.md', `\uFEFF${frontmatter('# B', 'id: bom')}`]),
+  );
+
+  assert.equal(rule.id, 'bom');
+});
+
+test('single-quoted scalars unescape doubled quotes', () => {
+  const [rule] = loadRules(
+    files(['Q.md', frontmatter('# Q', "description: 'it''s fine'")]),
+  );
+
+  assert.equal(rule.description, "it's fine");
+});
+
+test('CRLF frontmatter parses the same as LF', () => {
+  const [rule] = loadRules(
+    files(['CRLF.md', '---\r\nid: crlf\r\nname: CRLF\r\n---\r\n# Body\r\n']),
+  );
+
+  assert.equal(rule.id, 'crlf');
+  assert.equal(rule.name, 'CRLF');
 });

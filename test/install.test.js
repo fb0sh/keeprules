@@ -23,20 +23,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 
 /**
- * A rule fixture, built through the same record shape `loadRules` produces.
- * Tests assert through the interface, so they describe rules rather than
- * copying the implementation's rendering.
+ * A rule fixture in the shape `loadRules` produces: content in memory, ready to
+ * be written. Tests assert through the interface, so they describe rules rather
+ * than copying the implementation's rendering.
  */
-function ruleFixture(dir, { file, name, postInstall = [] }) {
-  const sourcePath = path.join(dir, file);
-  writeFileSync(sourcePath, `# ${name}\n`);
-
+function ruleFixture(_dir, { file, name, postInstall = [] }) {
   return {
     id: name.toLowerCase(),
     name,
     description: `${name} rule`,
     file,
-    sourcePath,
+    content: `# ${name}\n`,
     postInstall,
   };
 }
@@ -333,13 +330,13 @@ test('a missing source is reported and the other rules still install', () => {
       id: 'missing',
       name: 'MISSING',
       file: 'MISSING.md',
-      sourcePath: path.join(sourceDir, 'MISSING.md'),
+      content: undefined,
     };
 
     const report = installSelection({ rules: [missing, good], cwd: project });
 
     assert.equal(report.failures.length, 1);
-    assert.match(report.failures[0].message, /规则文件缺失/);
+    assert.match(report.failures[0].message, /规则内容缺失/);
     assert.equal(report.failures[0].subject, 'MISSING');
     assert.equal(exists(project, 'rules/GOOD.md'), true);
   });
@@ -353,7 +350,7 @@ test('failures carry a subject and a message, never a rule object', () => {
           id: 'broken',
           name: 'BROKEN',
           file: 'BROKEN.md',
-          sourcePath: '/nonexistent/BROKEN.md',
+          content: undefined,
           postInstall: [],
         },
       ],
@@ -372,7 +369,7 @@ test('a failed rule is never referenced from AGENTS.md', () => {
       id: 'bad',
       name: 'BAD',
       file: 'BAD.md',
-      sourcePath: path.join(sourceDir, 'BAD.md'),
+      content: undefined,
     };
 
     installSelection({ rules: [good, bad], cwd: project, confirmed: ['agents'] });
@@ -401,9 +398,19 @@ test('rules whose targets differ only by case are reported as a conflict', () =>
 
 // ── Discovery still feeds the install ───────────────────────────────────────
 
-test('rules loaded from disk install correctly end to end', () => {
+test('the repository rules install correctly end to end', () => {
   withWorkspace((project) => {
-    const rules = loadRules(path.join(ROOT, 'rules'));
+    // Read the repo's own rule files the way the remote loader would hand them
+    // over: file name + content, nothing else.
+    const rulesDir = path.join(ROOT, 'rules');
+    const rules = loadRules(
+      readdirSync(rulesDir)
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => ({
+          file,
+          content: readFileSync(path.join(rulesDir, file), 'utf8'),
+        })),
+    );
 
     const report = installSelection({
       rules,
@@ -548,7 +555,7 @@ test('the agents step reports when nothing installed can be referenced', () => {
       name: 'RULE',
       postInstall: ['agents'],
     });
-    const broken = { ...rule, sourcePath: path.join(sourceDir, 'GONE.md') };
+    const broken = { ...rule, content: undefined };
 
     const report = installSelection({
       rules: [broken],

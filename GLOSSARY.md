@@ -5,13 +5,23 @@ code, tests, and conversation instead of inventing synonyms.
 
 ## Rule
 
-One Markdown file in the package's `rules/` directory, describing behaviour a
+One Markdown file in the repository's `rules/` directory, describing behaviour a
 Coding Agent must follow. A rule's metadata comes from a small YAML frontmatter
 subset (`id`, `name`, `description`, `postInstall`); files without frontmatter
 still work, falling back to the file name and first Markdown line.
 
-Adding a rule means adding a file. Nothing else changes. This is the project's
-best property and the template for everything else.
+Adding a rule means adding a file plus one line in `rules/index.json`. Nothing
+else changes, and no release is needed: rules are fetched at install time.
+
+## Rule source
+
+The repository's `main` branch, reached over HTTP at
+`raw.githubusercontent.com`. The npm package ships no rules, so an install
+always reflects the repository as it is right now — and an install with no
+network fails rather than silently using an older set.
+
+A manifest (`rules/index.json`) lists the rule files, because HTTP cannot list a
+directory.
 
 ## Rule file
 

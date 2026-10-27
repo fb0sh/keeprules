@@ -13,39 +13,19 @@
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { loadRules } from '../src/rules.js';
-import {
-  RULES_DIR,
-  assertKnownSteps,
-  ruleTargetPath,
-} from '../src/install.js';
+import { RULES_DIR, ruleTargetPath } from '../src/install.js';
 import { RESULT, runFlow } from '../src/flow.js';
 import { prompts } from '../src/prompts.js';
+import { REPO_URL, fetchRules } from '../src/remote.js';
 
 const packageJson = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
-const PACKAGE_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-);
 
-const PROJECT_URL = 'https://github.com/fb0sh/keeprules';
 const AUTHOR_EMAIL = 'fb0sh@outlook.com';
-
-/**
- * Rules are auto-registered from the package's `rules/*.md` at startup, and
- * their `postInstall` names are checked against the installed steps here, so a
- * typo in a rule file fails on launch instead of during an install.
- */
-const RULES = loadRules(path.join(PACKAGE_ROOT, RULES_DIR));
-for (const rule of RULES) {
-  assertKnownSteps(rule.postInstall ?? [], `规则 ${rule.file}`);
-}
 
 /** How a log level maps to a clack writer. */
 const LOG = {
@@ -91,7 +71,7 @@ function printHelp() {
   console.log(
     [
       `${pc.bold('keeprules')} ${pc.dim(`v${packageJson.version}`)}`,
-      `${pc.dim('仓库')}: ${PROJECT_URL}`,
+      `${pc.dim('仓库')}: ${REPO_URL}`,
       `${pc.dim('作者')}: ${AUTHOR_EMAIL}`,
       '',
       `${pc.bold('用法')}`,
@@ -102,11 +82,8 @@ function printHelp() {
       `  ${pc.cyan('-h, --help')}         显示帮助`,
       `  ${pc.cyan('-v, --version')}      显示版本`,
       '',
-      `${pc.bold('可用规则')}`,
-      ...RULES.map(
-        (rule) =>
-          `  ${pc.green(rule.name)}  ${pc.dim(`(${ruleTargetPath(rule)})`)}  ${rule.description}`,
-      ),
+      `${pc.bold('规则来源')}`,
+      `  ${pc.dim(`运行时从 ${REPO_URL} 的 main 分支获取（需要联网）`)}`,
     ].join('\n'),
   );
 }
@@ -144,8 +121,24 @@ export function parseArgs(argv) {
 
 /** Drive the flow and translate its result into an exit code. */
 async function runAdd() {
+  const spinner = p.spinner();
+  spinner.start('正在获取规则...');
+
+  let rules;
+
+  try {
+    rules = await fetchRules();
+  } catch (error) {
+    spinner.stop('无法获取规则', 1);
+    p.log.error(error.message);
+    p.outro(pc.red(`请检查网络后重试，或访问 ${REPO_URL} 查看规则。`));
+    return 1;
+  }
+
+  spinner.stop(`已获取 ${rules.length} 个规则`);
+
   const result = await runFlow({
-    rules: RULES,
+    rules,
     cwd: process.cwd(),
     prompts,
     out: printer,

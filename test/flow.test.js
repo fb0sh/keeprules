@@ -26,13 +26,8 @@ const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 async function withProject(fn) {
   mkdirSync(TMP_ROOT, { recursive: true });
   const dir = mkdtempSync(path.join(TMP_ROOT, 'flow-'));
-  const source = path.join(dir, 'source');
   const project = path.join(dir, 'project');
-  mkdirSync(source);
   mkdirSync(project);
-
-  writeFileSync(path.join(source, 'ALPHA.md'), '# ALPHA\n');
-  writeFileSync(path.join(source, 'BETA.md'), '# BETA\n');
 
   const rules = [
     {
@@ -40,7 +35,7 @@ async function withProject(fn) {
       name: 'ALPHA',
       description: 'Alpha rule',
       file: 'ALPHA.md',
-      sourcePath: path.join(source, 'ALPHA.md'),
+      content: '# ALPHA\n',
       postInstall: ['gitignore', 'agents'],
     },
     {
@@ -48,13 +43,13 @@ async function withProject(fn) {
       name: 'BETA',
       description: 'Beta rule',
       file: 'BETA.md',
-      sourcePath: path.join(source, 'BETA.md'),
+      content: '# BETA\n',
       postInstall: [],
     },
   ];
 
   try {
-    return await fn({ dir, project, rules, source });
+    return await fn({ dir, project, rules });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -238,12 +233,10 @@ test('cancelling or declining the final confirmation installs nothing', async ()
 // ── Failure reporting ───────────────────────────────────────────────────────
 
 test('a failure makes the run failed and still reports everything', async () => {
-  withProject(async ({ project, rules, source }) => {
-    // One rule copies, the other's source disappears before the install.
+  withProject(async ({ project, rules }) => {
+    // One rule writes, the other arrives without content.
     const broken = rules.map((rule) =>
-      rule.id === 'beta'
-        ? { ...rule, sourcePath: path.join(source, 'GONE.md') }
-        : rule,
+      rule.id === 'beta' ? { ...rule, content: undefined } : rule,
     );
 
     const { result, out } = await run({
