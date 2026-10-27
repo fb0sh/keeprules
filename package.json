@@ -1,6 +1,6 @@
 {
   "name": "keeprules",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Interactive installer for Coding Agent project rules.",
   "repository": {
     "type": "git",
