@@ -1,62 +1,62 @@
 ---
 id: keeptidy
 name: KEEPTIDY
-description: Coding Agent 工程卫生与资源管理规范（项目级 tmp、任务隔离、缓存治理、资源回收、Git 安全、进程管理）
+description: Coding Agent engineering hygiene and resource management rules (project-local tmp, task isolation, cache governance, resource cleanup, Git safety, and process management)
 postInstall:
   - gitignore
   - agents
 ---
 
-# KEEPTIDY — 工程卫生与资源管理规范
+# KEEPTIDY — Engineering Hygiene and Resource Management Rules
 
-适用于当前项目内的所有 Coding Agent 及其委派的 Subagent，包括 Codex、Claude Code、Pi、DeepSeek Harness 等。
+Applies to all Coding Agents working in the current project and their delegated Subagents, including Codex, Claude Code, Pi, DeepSeek Harness, and others.
 
-**核心原则：保持工作环境整洁、资源可控、修改安全、过程可追踪。所有可控的临时工作集中在项目 `tmp/`，任务完成后安全回收自身资源。**
+**Core principle: Keep the working environment tidy, resources controlled, changes safe, and work traceable. Keep all controllable temporary work under the project's `tmp/` directory, and safely reclaim task-owned resources when the task ends.**
 
-本规则使用以下规范性关键词：
+This document uses the following normative terms:
 
-- **MUST**：必须执行。
-- **MUST NOT**：严格禁止。
-- **SHOULD**：默认执行，存在合理原因时允许调整。
+- **MUST**: Mandatory requirement.
+- **MUST NOT**: Strict prohibition.
+- **SHOULD**: Default requirement that may be adjusted for a justified reason.
 
-执行规则应保持轻量、自动化和最小侵入，避免为了资源管理引入不必要的工程复杂度。
+Keep enforcement lightweight, automated where appropriate, and minimally invasive. Avoid introducing unnecessary engineering complexity solely to manage resources.
 
-## 1. 工作范围与项目根目录
+## 1. Work Scope and Project Root
 
-- **MUST** 在操作前明确当前项目根目录（`PROJECT_ROOT`）及任务授权范围。
-- **MUST** 优先使用当前 Git 工作区根目录作为 `PROJECT_ROOT`；非 Git 项目使用用户指定或明确识别的项目根目录。
-- **MUST** 保护用户已有文件、未提交修改、运行中的服务和其他任务资源。
-- **MUST** 在修改、移动、删除文件前确认实际目标路径处于授权范围内。
-- **MUST NOT** 擅自修改其他仓库、用户主目录配置、系统目录及任务范围外的文件。
-- **MUST NOT** 通过符号链接、路径穿越或其他方式绕过工作范围限制。
-- **SHOULD** 优先复用项目已有的目录、工具链、构建策略和工程约定。
-- **SHOULD** 将修改控制在当前任务的合理范围内，避免无关重构。
+- **MUST** identify the current project root (`PROJECT_ROOT`) and the task's authorized scope before taking action.
+- **MUST** prefer the current Git worktree root as `PROJECT_ROOT`; for non-Git projects, use the root specified by the user or clearly identified for the project.
+- **MUST** preserve the user's existing files and uncommitted changes, running services, and resources belonging to other tasks.
+- **MUST** verify that the actual target path is within the authorized scope before modifying, moving, or deleting files.
+- **MUST NOT** modify other repositories, the user's home-directory configuration, system directories, or files outside the task scope without authorization.
+- **MUST NOT** bypass work-scope restrictions through symbolic links, path traversal, or other means.
+- **SHOULD** reuse the project's existing directories, toolchains, build strategies, and engineering conventions.
+- **SHOULD** keep changes within the reasonable scope of the current task and avoid unrelated refactoring.
 
-允许按项目既有约定读取必要的系统工具链、依赖及外部只读资源；写入和清理仍受授权边界限制。
+Reading necessary system toolchains, dependencies, and external read-only resources is permitted under the project's established conventions. Writes and cleanup operations remain subject to authorization boundaries.
 
-项目本身位于系统 `/tmp/` 时，**MUST** 停止与本规则冲突的文件操作并报告原因。
+If the project itself is located under the system `/tmp/`, **MUST** stop file operations that conflict with these rules and report the reason.
 
-## 2. 临时目录与工作空间
+## 2. Temporary Directories and Workspace
 
-### 2.1 系统 `/tmp/` 禁令
+### 2.1 System `/tmp/` Prohibition
 
-- **MUST NOT** 主动读取、列举、写入、修改、清理或删除系统 `/tmp/` 目录及其内容。
-- **MUST NOT** 主动使用系统 `/tmp/` 保存编译产物、测试数据、调试日志、下载文件、缓存、脚本或数据库。
-- **MUST NOT** 通过符号链接、相对路径或路径重定向绕过上述限制。
-- **MUST** 在启动可控的编译、测试、下载及调试子进程前配置项目级临时目录。
-- **MUST** 优先选择能够指定临时目录的工具和运行方式。
-- 对确实无法重定向、且需要 Agent 主动操作系统 `/tmp/` 的步骤，**MUST** 停止对应操作并报告阻塞。
-- **MUST NOT** 为处理异常而清空系统 `/tmp/` 或执行全局临时目录清理。
+- **MUST NOT** actively read, list, write, modify, clean up, or delete the system `/tmp/` directory or its contents.
+- **MUST NOT** actively use the system `/tmp/` to store build artifacts, test data, debug logs, downloads, caches, scripts, or databases.
+- **MUST NOT** circumvent these restrictions using symbolic links, relative paths, or path redirection.
+- **MUST** configure project-local temporary directories before launching controllable build, test, download, or debugging subprocesses.
+- **MUST** prefer tools and execution methods that allow the temporary directory to be configured.
+- If a step cannot be redirected and requires the Agent to actively operate on system `/tmp/`, **MUST** stop that step and report the blocker.
+- **MUST NOT** empty the system `/tmp/` or perform global temporary-directory cleanup in response to an error.
 
-本规则约束 Agent 主动执行及能够配置的文件系统操作。操作系统、已有服务及第三方工具内部无法控制的行为，应如实说明限制。
+These rules govern filesystem operations actively initiated by the Agent or configurable by it. Accurately disclose limitations involving uncontrollable internal behavior of the operating system, existing services, or third-party tools.
 
-### 2.2 项目级临时目录
+### 2.2 Project-Local Temporary Directory
 
-所有可控的临时文件、中间结果及可重建缓存应统一放置在：
+All controllable temporary files, intermediate results, and rebuildable caches belong under:
 
 `PROJECT_ROOT/tmp/`
 
-推荐目录结构：
+Recommended layout:
 
 ```text
 project/
@@ -82,56 +82,56 @@ project/
     └── s/
 ```
 
-目录用途：
+Directory purposes:
 
-| 目录 | 用途 | 生命周期 |
+| Directory | Purpose | Lifecycle |
 | --- | --- | --- |
-| `runs/<id>/scratch/` | 临时脚本、测试文件、中间数据 | 任务结束后清理 |
-| `runs/<id>/logs/` | 调试日志、测试日志 | 复核后清理 |
-| `runs/<id>/outputs/` | 截图、测试报告、临时输出 | 验收或迁移后清理 |
-| `runs/<id>/backups/` | 临时恢复副本 | 确认无需恢复后清理 |
-| `runs/<id>/state/` | 当前任务状态及资源归属记录 | 任务结束后处理 |
-| `cache/` | 可复用的构建、下载及工具缓存 | 按容量和有效性回收 |
-| `state/` | 跨任务使用的数据库及服务状态 | 受保护，确认后回收 |
-| `worktrees/` | Agent 的 Git Worktree | 通过 Git 安全管理 |
-| `bin/` | 临时编译的可执行文件 | 确认不再使用后清理 |
-| `s/` | Unix Socket 等短路径资源 | 任务结束后清理 |
+| `runs/<id>/scratch/` | Temporary scripts, test files, and intermediate data | Clean up when the task ends |
+| `runs/<id>/logs/` | Debugging and test logs | Clean up after review |
+| `runs/<id>/outputs/` | Screenshots, test reports, and temporary outputs | Clean up after acceptance or migration |
+| `runs/<id>/backups/` | Temporary recovery copies | Clean up when recovery is no longer needed |
+| `runs/<id>/state/` | Current task state and resource ownership records | Process at task completion |
+| `cache/` | Reusable build, download, and tool caches | Reclaim based on size and validity |
+| `state/` | Databases and service state shared across tasks | Protected; reclaim only after verification |
+| `worktrees/` | Agent Git worktrees | Manage safely through Git |
+| `bin/` | Temporarily compiled executables | Clean up when no longer in use |
+| `s/` | Short-path resources such as Unix sockets | Clean up when the task ends |
 
-执行要求：
+Execution requirements:
 
-- **MUST** 根据实际任务需要创建目录。
-- **MUST NOT** 为满足目录结构而预先创建所有空目录。
-- **MUST** 为并行任务分配唯一的任务标识。
-- **MUST** 为 Subagent 分配独立的任务目录或子目录。
-- **MUST** 确保不同任务不会意外覆盖对方的文件。
-- **MUST** 对已有 `tmp/` 内容采取保守处理，确认归属后再整理。
-- **SHOULD** 优先使用上述标准目录，避免出现多个功能重复的顶层临时目录。
-- **SHOULD** 保持任务目录命名简短、可识别。
-- **SHOULD** 使用项目已有且合理的正式构建目录，保留有效的增量构建能力。
+- **MUST** create directories according to actual task needs.
+- **MUST NOT** pre-create every empty directory merely to match the layout.
+- **MUST** assign unique task identifiers to concurrent tasks.
+- **MUST** give each Subagent a separate task directory or subdirectory.
+- **MUST** prevent tasks from accidentally overwriting one another's files.
+- **MUST** treat existing `tmp/` contents conservatively; establish ownership before reorganizing them.
+- **SHOULD** prefer these standard directories and avoid multiple top-level temporary directories serving the same purpose.
+- **SHOULD** keep task directory names short and recognizable.
+- **SHOULD** retain existing appropriate permanent build directories to preserve effective incremental builds.
 
-对多 Agent 并发使用的共享缓存，必须尊重工具自身的并发安全要求。
+When multiple Agents share caches concurrently, respect the tools' own concurrency-safety requirements.
 
-### 2.3 Git 忽略规则
+### 2.3 Git Ignore Rules
 
-Git 项目根目录的 `.gitignore` **MUST** 包含：
+The `.gitignore` at the root of a Git project **MUST** ignore the project-local `tmp/` directory. For example:
 
 ```gitignore
-# keeprules: 临时目录
+# keeprules: temporary directory
 /tmp/
 ```
 
-- **MUST** 在需要时自动补充该规则。
-- **MUST** 保留 `.gitignore` 原有内容及有效规则。
-- **MUST** 确认忽略规则实际生效。
-- **MUST NOT** 假设 `.gitignore` 可以自动取消已经被 Git 跟踪的文件。
-- 发现已跟踪的临时文件时，**MUST** 先检查文件用途，再按照授权处理。
-- **MUST NOT** 将凭证、临时日志、缓存和无关构建产物提交到仓库。
+- **MUST** add the rule automatically when necessary.
+- **MUST** preserve existing `.gitignore` content and valid rules.
+- **MUST** verify that the ignore rule actually takes effect.
+- **MUST NOT** assume `.gitignore` automatically removes already-tracked files from version control.
+- If tracked temporary files are found, **MUST** inspect their purpose before handling them under appropriate authorization.
+- **MUST NOT** commit credentials, temporary logs, caches, or unrelated build artifacts.
 
-### 2.4 临时目录环境变量
+### 2.4 Temporary-Directory Environment Variables
 
-对于 Agent 启动的可控子进程，**MUST** 根据平台及工具支持设置临时目录。
+For controllable subprocesses launched by an Agent, **MUST** configure temporary directories as supported by the platform and tools.
 
-Linux/macOS Bash 示例：
+Linux/macOS Bash example:
 
 ```bash
 TASK_TMP="$PROJECT_ROOT/tmp/runs/$TASK_ID/scratch"
@@ -144,198 +144,198 @@ TEMP="$TASK_TMP" \
 <command>
 ```
 
-要求：
+Requirements:
 
-- `PROJECT_ROOT` 必须是已确认的绝对路径。
-- `TASK_ID` 必须在当前并发任务范围内唯一。
-- 目标目录必须在启动命令前创建。
-- **MUST** 尽可能使用绝对路径传递临时目录。
-- **MUST** 只对当前任务及其子进程设置相关环境变量。
-- **MUST NOT** 为此修改用户全局 Shell 配置。
-- **SHOULD** 根据工具能力额外设置缓存、构建及下载目录。
-- **MUST NOT** 假定 `TMPDIR` 能够控制所有工具的输出路径。
+- `PROJECT_ROOT` must be a verified absolute path.
+- `TASK_ID` must be unique among concurrently running tasks.
+- The target directory must exist before launching the command.
+- **MUST** use absolute temporary-directory paths wherever possible.
+- **MUST** set these variables only for the current task and its subprocesses.
+- **MUST NOT** modify the user's global shell configuration to do so.
+- **SHOULD** configure tool-specific caches, build directories, and download locations as supported.
+- **MUST NOT** assume `TMPDIR` controls every output path of every tool.
 
-Windows 应使用对应的进程级环境变量与平台原生路径 API。
+On Windows, use the corresponding process-level environment variables and platform-native path APIs.
 
-### 2.5 Unix Socket 与短路径
+### 2.5 Unix Sockets and Short Paths
 
-部分 Linux/macOS 工具对 Unix Socket 路径长度有严格限制。
+Some Linux/macOS tools impose strict limits on Unix socket path lengths.
 
-- **MUST** 在创建 pathname Unix Socket 前检查完整绝对路径是否符合平台限制。
-- **SHOULD** 优先缩短任务 ID、Socket 文件名和中间目录。
-- **SHOULD** 在需要时使用 `tmp/s/<task-id>/`。
-- **MUST NOT** 为绕过 Socket 路径长度限制而转移到系统 `/tmp/`。
-- **MUST NOT** 使用仓库外符号链接绕过授权范围。
-- 项目根目录过长导致无法满足限制时，**MUST** 报告受限操作并选择安全的兼容方案。
+- **MUST** verify that the complete absolute pathname meets platform limits before creating a pathname Unix socket.
+- **SHOULD** shorten task IDs, socket filenames, and intermediate directories first.
+- **SHOULD** use `tmp/s/<task-id>/` when a short path is needed.
+- **MUST NOT** relocate sockets to the system `/tmp/` to work around path-length limits.
+- **MUST NOT** use symbolic links outside the repository to bypass authorization boundaries.
+- If the project root is too long to satisfy these limits, **MUST** report the constrained operation and select a safe compatible solution.
 
-## 3. 缓存与构建产物管理
+## 3. Cache and Build Artifact Management
 
-### 3.1 统一缓存原则
+### 3.1 Unified Cache Principles
 
-同一项目中的同一工具应优先复用统一的缓存路径。
+The same tool within a project should preferably reuse one consistent cache location.
 
-- **MUST** 在创建新的持久缓存前检查是否已有兼容、可复用的缓存。
-- **SHOULD** 将可配置的项目级缓存集中放入 `tmp/cache/`。
-- **SHOULD** 在同一工具链中保持稳定的缓存配置，减少重复下载和重新编译。
-- **MUST NOT** 无理由为同一工具反复创建多个独立缓存目录。
-- **MUST NOT** 为统一目录而破坏已有可工作的构建环境。
-- **MUST** 尊重工具本身的缓存格式、锁机制与并发安全要求。
-- **SHOULD** 尽量保留有效的构建增量缓存。
-- **SHOULD** 定期检查异常增长及长期无用的缓存。
+- **MUST** check for an existing compatible, reusable cache before creating a new persistent cache.
+- **SHOULD** place configurable project-level caches under `tmp/cache/`.
+- **SHOULD** keep cache configuration consistent within a toolchain to reduce repeated downloads and recompilation.
+- **MUST NOT** repeatedly create separate cache directories for the same tool without justification.
+- **MUST NOT** break a functioning build environment merely to standardize directory names.
+- **MUST** respect each tool's cache format, locking, and concurrency-safety requirements.
+- **SHOULD** preserve effective incremental build caches whenever possible.
+- **SHOULD** periodically inspect caches for abnormal growth and long-unused data.
 
-发现历史缓存目录重复时：
+When duplicate historical cache directories are found:
 
-1. 确认实际使用的缓存配置。
-2. 检查目录容量、内容和活跃引用。
-3. 确定统一的后续使用路径。
-4. 在确认安全后迁移或回收旧缓存。
+1. Identify the cache configuration actually in use.
+2. Inspect directory sizes, contents, and active references.
+3. Determine one consistent location for future use.
+4. Migrate or reclaim old caches only after verifying that it is safe.
 
-**MUST NOT** 在不了解缓存用途及当前使用状态时直接批量删除。
+**MUST NOT** bulk-delete caches without understanding their purpose and current use.
 
-### 3.2 常见工具缓存约定
+### 3.2 Common Tool Cache Conventions
 
-以下为参考目录，按项目实际技术栈使用：
+The following locations are examples; use only those relevant to the project's technology stack:
 
-| 工具 | 推荐路径 | 典型配置 |
+| Tool | Recommended path | Typical configuration |
 | --- | --- | --- |
 | Go Build | `tmp/cache/go-build/` | `GOCACHE` |
 | Go Modules | `tmp/cache/go-mod/` | `GOMODCACHE` |
 | Go Workspace | `tmp/cache/go-path/` | `GOPATH` |
 | npm | `tmp/cache/npm/` | `npm_config_cache` |
 | pnpm Store | `tmp/cache/pnpm-store/` | `store-dir` |
-| Node 编译缓存 | `tmp/cache/node-compile/` | `NODE_COMPILE_CACHE` |
-| Playwright 浏览器 | `tmp/cache/playwright-browsers/` | `PLAYWRIGHT_BROWSERS_PATH` |
+| Node compile cache | `tmp/cache/node-compile/` | `NODE_COMPILE_CACHE` |
+| Playwright browsers | `tmp/cache/playwright-browsers/` | `PLAYWRIGHT_BROWSERS_PATH` |
 
-对于 Playwright 测试输出、浏览器 Profile 和转换缓存，应分别采用工具支持的配置方式管理。
+Manage Playwright test output, browser profiles, and transform caches separately using their supported configuration mechanisms.
 
-这些路径是建议约定，具体工具版本、现有配置及项目需求具有优先参考价值。
+These paths are suggested conventions; the specific tool version, existing settings, and project requirements must inform the choice.
 
-**SHOULD** 优先复用现有兼容缓存，而非仅因目录名称不同就执行迁移。
+**SHOULD** reuse existing compatible caches rather than migrate them solely because their directory names differ.
 
-例如，Go Build Cache 中自动产生的哈希子目录属于正常缓存结构，无需逐一整理。
+For example, hash-based subdirectories created automatically inside the Go build cache are normal and need no individual reorganization.
 
-对于 Rust `target/`、Go 项目正式输出目录及其他现有构建目录，**SHOULD** 保留项目已有约定。
+For Rust `target/`, the official output directories of Go projects, and other existing build directories, **SHOULD** preserve project conventions.
 
-### 3.3 缓存清理
+### 3.3 Cache Cleanup
 
-- **MUST** 区分当前任务缓存、共享缓存和外部工具缓存。
-- **MUST** 在清理共享缓存前确认无其他任务正在使用。
-- **MUST NOT** 未经授权清理用户主目录的全局缓存。
-- **MUST NOT** 使用影响其他项目的全局缓存清理命令。
-- **SHOULD** 使用工具提供的官方缓存检查和清理机制。
-- **SHOULD** 优先回收已确认无用的重复缓存及过期下载数据。
-- **MUST** 在清理后保留正在使用的项目构建与运行能力，或明确说明需要重建的内容。
+- **MUST** distinguish current-task caches, shared caches, and external tool caches.
+- **MUST** verify that no other task is using a shared cache before cleaning it up.
+- **MUST NOT** clean global caches in the user's home directory without authorization.
+- **MUST NOT** use global cache-cleaning commands that affect other projects.
+- **SHOULD** use the tool's official cache inspection and cleanup mechanisms.
+- **SHOULD** prioritize reclaiming confirmed unused duplicate caches and expired download data.
+- **MUST** preserve the project's actively used build and runtime capabilities after cleanup, or explicitly document what will need to be rebuilt.
 
-## 4. 临时产物与正式成果分离
+## 4. Separating Temporary Artifacts from Permanent Deliverables
 
-所有项目数据按以下类别管理：
+Classify project data as follows:
 
-| 类别 | 示例 | 处理原则 |
+| Category | Examples | Handling |
 | --- | --- | --- |
-| 一次性临时文件 | 调试脚本、测试中间文件 | 任务结束后清理 |
-| 可复用缓存 | 编译缓存、依赖下载缓存 | 按需保留与回收 |
-| 运行状态 | 数据库、服务状态、Socket | 受保护，确认后清理 |
-| 正式研发成果 | Spec、Tickets、ADR、设计文档 | 持久化保存 |
-| 验证证据 | E2E 报告、关键截图、测试记录 | 按验收和保留策略管理 |
+| One-off temporary files | Debugging scripts, intermediate test files | Clean up when the task ends |
+| Reusable caches | Compiler caches, dependency download caches | Retain or reclaim as needed |
+| Runtime state | Databases, service state, sockets | Protected; clean up only after verification |
+| Permanent engineering deliverables | Specs, tickets, ADRs, design documents | Store persistently |
+| Verification evidence | E2E reports, key screenshots, test records | Manage according to acceptance and retention policies |
 
-### 4.1 正式研发成果
+### 4.1 Permanent Engineering Deliverables
 
-- **MUST** 将需要长期保存的需求、规格、架构决策及正式设计文档保存在项目认可的持久位置。
-- **MUST** 优先使用已有的 `docs/`、Issue Tracker 或其他正式文档管理机制。
-- **MUST NOT** 将被 Git 忽略的 `tmp/` 作为正式研发成果的唯一长期存储位置。
-- **SHOULD** 将开发过程中尚未确认的草稿保存在 `tmp/runs/<task-id>/outputs/`。
-- **MUST** 在正式交付前将必要的草稿内容转移至持久位置。
-- **MUST** 在删除临时副本前验证正式版本已经完整保存。
-- **MUST NOT** 因文档已经存在同名文件就假定内容已经同步。
+- **MUST** store requirements, specifications, architecture decisions, and formal design documents that need long-term retention in project-approved persistent locations.
+- **MUST** prefer an existing `docs/` directory, issue tracker, or other established documentation system.
+- **MUST NOT** use Git-ignored `tmp/` as the sole long-term storage location for permanent engineering deliverables.
+- **SHOULD** keep unapproved working drafts in `tmp/runs/<task-id>/outputs/` during development.
+- **MUST** move drafts that need to be preserved into a persistent location before final delivery.
+- **MUST** verify that the permanent version is complete before deleting a temporary copy.
+- **MUST NOT** assume that a document has been synchronized merely because a file with the same name exists.
 
-如果 Spec 或 Tickets 已经完整保存到 GitHub Issues，可以将本地中间副本作为临时资源，在确认一致后安全清理。
+If specs or tickets have been completely saved as GitHub Issues, their local intermediate copies may be treated as temporary resources and safely cleaned up after verifying consistency.
 
-### 4.2 日志与测试证据
+### 4.2 Logs and Test Evidence
 
-- **MUST** 将可控日志和测试中间产物归入对应任务目录。
-- **SHOULD** 使用结构化目录，避免在 `tmp/` 根目录散落大量日志和截图。
-- **MUST** 保留复现失败所需的关键错误信息。
-- **MUST** 在交付时区分正式测试证据与一次性调试输出。
-- **SHOULD** 根据任务验收情况清理多余的重复日志。
-- **SHOULD** 对大日志采用轮转、限制大小或安全截断。
-- **MUST NOT** 通过删除失败证据、隐藏错误或伪造报告宣称测试成功。
+- **MUST** place controllable logs and intermediate test artifacts in the corresponding task directory.
+- **SHOULD** use an organized directory structure rather than scatter logs and screenshots across the `tmp/` root.
+- **MUST** retain the key error information needed to reproduce failures.
+- **MUST** distinguish formal test evidence from disposable debugging output at delivery.
+- **SHOULD** clean up excess duplicate logs according to task acceptance status.
+- **SHOULD** rotate, size-limit, or safely truncate large logs.
+- **MUST NOT** claim tests passed by deleting failure evidence, hiding errors, or fabricating reports.
 
-### 4.3 临时可执行文件
+### 4.3 Temporary Executables
 
-- **SHOULD** 将一次性编译的可执行文件保存在 `tmp/bin/` 或任务输出目录。
-- **MUST** 在删除前检查是否仍被进程使用。
-- **MUST NOT** 删除当前运行服务所依赖的文件。
-- **SHOULD** 在任务完成且确认可重建后清理无用产物。
+- **SHOULD** place one-off compiled executables under `tmp/bin/` or the task's output directory.
+- **MUST** check whether a process is still using an executable before deleting it.
+- **MUST NOT** delete files required by currently running services.
+- **SHOULD** clean up unused artifacts after task completion once their rebuildability has been confirmed.
 
-## 5. Git 与工作区安全
+## 5. Git and Working Tree Safety
 
-- **MUST** 在修改前检查当前 Git 状态和相关文件。
-- **MUST** 保护用户及其他 Agent 的未提交修改。
-- **MUST** 在提交或交付前检查最终 Git 差异。
-- **MUST NOT** 未经授权执行 `git reset --hard`、`git clean -fdx`、强制推送、历史重写或删除分支。
-- **MUST NOT** 未经明确授权自动提交代码。
-- **MUST NOT** 擅自覆盖、丢弃或暂存用户已有修改。
-- **MUST NOT** 为修复冲突而删除其他 Agent 的成果。
-- **MUST** 对高风险修改采取与风险相匹配的恢复措施。
+- **MUST** inspect current Git status and relevant files before modifying them.
+- **MUST** preserve uncommitted changes made by the user or other Agents.
+- **MUST** inspect the final Git diff before committing or delivering work.
+- **MUST NOT** run `git reset --hard`, `git clean -fdx`, force-push, rewrite history, or delete branches without authorization.
+- **MUST NOT** automatically commit code without explicit authorization.
+- **MUST NOT** overwrite, discard, or stash the user's existing changes without authorization.
+- **MUST NOT** delete other Agents' work to resolve conflicts.
+- **MUST** take recovery measures proportionate to the risk of high-impact changes.
 
-对批量删除、不可逆迁移或其他重要变更，**MUST** 在执行前确认恢复方案。
+Before bulk deletion, irreversible migration, or other significant changes, **MUST** confirm a recovery plan.
 
-`tmp/runs/<task-id>/backups/` 可用于短期恢复；需要长期保存的备份必须迁移到项目认可的位置。
+`tmp/runs/<task-id>/backups/` may be used for short-term recovery; backups requiring long-term retention must be moved to a project-approved location.
 
-生产环境及不可逆数据操作同时遵守 `KEEPSECURED.md`。
+Production environments and irreversible data operations are also governed by `KEEPSECURED.md`.
 
-## 6. Git Worktree 生命周期
+## 6. Git Worktree Lifecycle
 
-Git Worktree 属于受保护的开发工作区，可能包含独立分支、未提交修改及 Subagent 产生的代码。
+Git worktrees are protected development workspaces and may contain independent branches, uncommitted changes, and code produced by Subagents.
 
-### 6.1 创建与使用
+### 6.1 Creation and Use
 
-- **SHOULD** 将临时 Agent Worktree 集中管理在 `tmp/worktrees/`。
-- **MUST** 在创建前检查是否已有可复用的适当 Worktree。
-- **MUST** 为每个 Worktree 分配清晰的任务归属。
-- **MUST** 避免多个 Agent 同时修改同一工作区中的相同文件。
-- **MUST** 尊重 Git Worktree 的管理机制。
-- **MUST NOT** 将 Worktree 当作普通临时目录随意删除。
+- **SHOULD** manage temporary Agent worktrees together under `tmp/worktrees/`.
+- **MUST** check for an existing suitable worktree that can be reused before creating another.
+- **MUST** assign clear task ownership to each worktree.
+- **MUST** prevent multiple Agents from concurrently modifying the same files in the same workspace.
+- **MUST** respect Git's worktree management mechanisms.
+- **MUST NOT** casually delete a worktree as though it were an ordinary temporary directory.
 
-如果项目已有明确的 Worktree 布局约定，可沿用现有布局。
+If the project already has an explicit worktree layout convention, that layout may be retained.
 
-### 6.2 完成与回收
+### 6.2 Completion and Reclamation
 
-在移除 Worktree 前，**MUST**：
+Before removing a worktree, **MUST**:
 
-1. 确认 Worktree 归属当前任务及其生命周期状态。
-2. 检查 Git Worktree 注册信息。
-3. 检查未提交修改及未跟踪文件。
-4. 检查分支中尚未集成的提交。
-5. 检查是否仍有 Agent、Shell、服务或其他进程在使用该目录。
-6. 确认需要保留的成果已经合并、提交或安全转移。
+1. Verify that the worktree belongs to the current task and determine its lifecycle status.
+2. Inspect Git's registered worktree information.
+3. Check uncommitted changes and untracked files.
+4. Check for commits on the branch that have not yet been integrated.
+5. Check whether any Agent, shell, service, or other process is still using the directory.
+6. Confirm that all work worth keeping has been merged, committed, or safely transferred.
 
-推荐使用：
+Recommended command:
 
 ```bash
 git worktree list --porcelain
 ```
 
-确认清理条件满足后，使用 Git 原生 Worktree 管理命令处理：
+Once cleanup conditions have been verified, use Git's native worktree management command:
 
 ```bash
 git worktree remove <worktree-path>
 ```
 
-- **MUST NOT** 直接通过递归删除代替正常的 Worktree 移除流程。
-- **MUST NOT** 未经授权强制删除存在未提交修改的 Worktree。
-- **MUST NOT** 未经授权删除包含未集成成果的分支。
-- **MUST NOT** 将 Worktree 目录年龄作为唯一清理依据。
-- **MUST** 对来源不明、仍被使用或存在未保存成果的 Worktree 保留现场。
-- **SHOULD** 在任务完成后回收属于本任务且已确认安全的 Worktree。
+- **MUST NOT** substitute recursive directory deletion for normal worktree removal.
+- **MUST NOT** forcibly remove a worktree with uncommitted changes without authorization.
+- **MUST NOT** delete branches containing unintegrated work without authorization.
+- **MUST NOT** use the worktree's age as the sole criterion for cleanup.
+- **MUST** preserve worktrees of unknown provenance, in active use, or containing unsaved work.
+- **SHOULD** reclaim task-owned worktrees after task completion once safety has been verified.
 
-如果仅需整理历史残留 Worktree 注册信息，应使用 Git 原生检查及修复机制，并先确认不会影响仍需恢复的工作区。
+If only stale worktree registration records need attention, use Git's native inspection and repair mechanisms after confirming that no workspace still needs recovery.
 
-## 7. 数据库与运行状态保护
+## 7. Database and Runtime State Protection
 
-项目临时目录可能包含 PostgreSQL、SQLite、Redis 或其他测试服务的运行状态。
+The project's temporary directory may contain runtime state for PostgreSQL, SQLite, Redis, or other test services.
 
-例如：
+Example:
 
 ```text
 tmp/
@@ -346,233 +346,233 @@ tmp/
         └── run/
 ```
 
-- **MUST** 将数据库数据目录视为受保护运行状态。
-- **MUST** 在清理前确认所属服务已经安全停止。
-- **MUST** 检查数据是否包含仍需保留的测试结果、迁移状态或用户数据。
-- **MUST** 在执行重置或清理前确认该环境允许重建。
-- **MUST NOT** 在数据库运行期间直接删除其数据目录。
-- **MUST NOT** 为释放空间直接删除无法确认可恢复性的数据库文件。
-- **SHOULD** 将数据库数据、日志及 Socket 分开管理。
-- **SHOULD** 为可重复构建的测试数据库建立明确的初始化与回收流程。
-- **MUST** 在清理后保留必要的复现能力，或明确记录重建方式。
+- **MUST** treat database data directories as protected runtime state.
+- **MUST** verify that the relevant service has been shut down safely before cleanup.
+- **MUST** check whether the data contains test results, migration state, or user data that still need to be retained.
+- **MUST** confirm that the environment may be rebuilt before resetting or cleaning it up.
+- **MUST NOT** directly delete a database data directory while the database is running.
+- **MUST NOT** delete database files of unverified recoverability merely to free disk space.
+- **SHOULD** manage database data, logs, and sockets separately.
+- **SHOULD** establish an explicit initialization and cleanup process for reproducible test databases.
+- **MUST** preserve the ability to reproduce necessary state after cleanup, or clearly document how to rebuild it.
 
-对于其他服务状态、测试容器 Volume 及本地模拟服务，采用相同的所有权与生命周期原则。
+Apply the same ownership and lifecycle principles to other service state, test container volumes, and local mock services.
 
-## 8. 进程、容器与并发管理
+## 8. Processes, Containers, and Concurrency
 
-### 8.1 进程管理
+### 8.1 Process Management
 
-- **MUST** 记录本任务创建的后台进程及用途。
-- **MUST** 明确后台资源的生命周期。
-- **MUST** 优先复用已有且适用的开发服务。
-- **MUST** 为长时间运行的操作提供超时、取消或状态检查机制。
-- **MUST** 在任务结束时停止本任务创建且无需保留的后台资源。
-- **MUST NOT** 随意终止用户、系统或其他任务的进程。
-- **MUST NOT** 仅凭 PID 判断进程归属；清理时应结合启动信息或其他可验证标识。
-- **SHOULD** 使用任务标识、进程组或其他适当方式管理后台进程。
+- **MUST** record the background processes created by the current task and their purposes.
+- **MUST** define the lifecycle of background resources.
+- **MUST** prefer to reuse existing suitable development services.
+- **MUST** provide timeouts, cancellation, or status-check mechanisms for long-running operations.
+- **MUST** stop task-created background resources that no longer need to be retained when the task ends.
+- **MUST NOT** arbitrarily terminate processes belonging to users, the system, or other tasks.
+- **MUST NOT** infer process ownership from PID alone; use startup information or other verifiable identifiers when cleaning up.
+- **SHOULD** use task identifiers, process groups, or other appropriate means to manage background processes.
 
-### 8.2 Docker 与容器
+### 8.2 Docker and Containers
 
-- **MUST** 为临时容器及相关资源保留可识别的任务归属。
-- **MUST** 在清理前检查容器、Volume 和网络是否仍被使用。
-- **MUST NOT** 未经授权执行全局 Docker 清理。
-- **MUST NOT** 清理其他任务、其他项目或用户创建的容器资源。
-- **SHOULD** 优先使用容器标签、项目名称等机制区分归属。
-- **SHOULD** 在任务结束后回收本任务已不再需要的临时容器。
+- **MUST** maintain recognizable task ownership for temporary containers and related resources.
+- **MUST** check whether containers, volumes, and networks are still in use before cleanup.
+- **MUST NOT** perform global Docker cleanup without authorization.
+- **MUST NOT** remove container resources created by other tasks, projects, or users.
+- **SHOULD** use container labels, project names, or similar mechanisms to distinguish ownership.
+- **SHOULD** reclaim temporary task-owned containers that are no longer needed at task completion.
 
-### 8.3 Subagent 与并发
+### 8.3 Subagents and Concurrency
 
-- **MUST** 确保所有 Subagent 继承适用的工程规则。
-- **MUST** 为并行任务划分清晰的文件、Worktree 和资源边界。
-- **MUST** 为并行任务分配独立的临时目录。
-- **MUST** 在合并结果前检查冲突与验证状态。
-- **MUST NOT** 进行无限递归委派或无界并发。
-- **SHOULD** 根据 CPU、内存、磁盘及项目需求调整并发数量。
-- **SHOULD** 避免多个 Subagent 重复执行高成本构建与测试。
+- **MUST** ensure that all Subagents inherit the applicable engineering rules.
+- **MUST** define clear file, worktree, and resource boundaries for concurrent tasks.
+- **MUST** assign separate temporary directories to concurrent tasks.
+- **MUST** check conflicts and verification status before integrating results.
+- **MUST NOT** delegate recursively without bounds or allow unbounded concurrency.
+- **SHOULD** adjust concurrency according to CPU, memory, disk capacity, and project requirements.
+- **SHOULD** avoid having multiple Subagents repeat expensive builds and tests unnecessarily.
 
-无需为这些约束引入额外的强制握手、专用守护进程或复杂管理框架。
+These constraints do not require additional mandatory handshakes, dedicated daemons, or complex management frameworks.
 
-## 9. 磁盘、日志与资源预算
+## 9. Disk, Log, and Resource Budgets
 
-- **MUST** 关注项目 `tmp/` 的总容量、文件数量及异常增长。
-- **MUST** 在大型编译、测试、下载及并行任务中关注剩余磁盘空间。
-- **MUST** 避免日志、缓存和测试产物无限增长。
-- **MUST** 在达到明确资源预算时暂停新增资源消耗并诊断。
-- **MUST** 优先检查本任务产生的资源。
-- **MUST NOT** 因磁盘空间不足而扩大清理权限。
-- **SHOULD** 根据项目规模设置合理的软预算。
-- **SHOULD** 对长时间任务定期检查资源占用。
-- **SHOULD** 对日志输出设置合理的大小限制。
-- **SHOULD** 避免无意义的重复下载、重复构建及重复生成测试产物。
+- **MUST** monitor the overall size of project `tmp/`, file counts, and abnormal growth.
+- **MUST** consider remaining disk space during large builds, tests, downloads, and concurrent tasks.
+- **MUST** prevent logs, caches, and test artifacts from growing without bound.
+- **MUST** pause new resource consumption and diagnose the situation when an explicit resource budget is reached.
+- **MUST** inspect resources generated by the current task first.
+- **MUST NOT** expand cleanup permissions because disk space is low.
+- **SHOULD** establish reasonable soft budgets appropriate to project scale.
+- **SHOULD** check resource consumption periodically during long-running tasks.
+- **SHOULD** place reasonable size limits on log output.
+- **SHOULD** avoid unnecessary repeated downloads, builds, and test artifact generation.
 
-初始软参考值：
+Initial soft reference values:
 
-| 资源 | 建议值 |
+| Resource | Suggested value |
 | --- | --- |
-| 单任务临时产物 | 2 GiB |
-| 并行 Subagent | 4 个 |
-| 已完成任务日志复查期 | 7 天 |
+| Temporary artifacts per task | 2 GiB |
+| Concurrent Subagents | 4 |
+| Review period for completed-task logs | 7 days |
 
-这些数值是可调整的参考阈值。大型项目和构建任务可以使用更高预算，资源阈值本身不授予删除权限。
+These values are adjustable reference thresholds. Large projects and build tasks may require higher budgets; reaching a resource threshold does not itself grant permission to delete anything.
 
-### 9.1 文件监听与扫描
+### 9.1 File Watching and Scanning
 
-- **SHOULD** 根据项目实际需要排除 `tmp/` 参与无关的文件监听、IDE 索引和递归测试发现。
-- **SHOULD** 避免构建工具反复扫描大型缓存目录。
-- **SHOULD** 在项目的备份和打包流程中明确临时目录处理方式。
-- **MUST NOT** 为排除临时目录而擅自大范围修改现有构建配置。
-- **MUST** 验证对监听、索引及构建配置的修改不会影响正式源文件。
+- **SHOULD** exclude `tmp/` from unrelated file watching, IDE indexing, and recursive test discovery as appropriate to the project.
+- **SHOULD** avoid repeatedly scanning large cache directories during builds.
+- **SHOULD** explicitly define how temporary directories are handled in project backup and packaging workflows.
+- **MUST NOT** make broad, unauthorized changes to existing build configuration solely to exclude temporary directories.
+- **MUST** verify that changes to file watching, indexing, and build configuration do not affect real source files.
 
-## 10. 错误处理与重试
+## 10. Error Handling and Retries
 
-- **MUST** 在失败后检查真实退出状态和关键错误信息。
-- **MUST** 判断故障属于代码、依赖、环境、权限、网络或外部服务等哪一类。
-- **MUST** 对确定性故障优先修复根因。
-- **MUST** 对瞬态故障采用有限重试和适当退避。
-- **MUST** 在相同条件下连续失败两次后改变排查策略。
-- **MUST** 在重试具有副作用的操作前检查现有状态。
-- **MUST NOT** 无限重复相同的失败命令。
-- **MUST NOT** 通过隐藏错误、跳过检查或伪造结果宣称成功。
-- **SHOULD** 保存必要的错误证据。
-- **SHOULD** 在遇到外部阻塞时继续推进独立且已授权的任务。
+- **MUST** inspect the real exit status and key error messages after a failure.
+- **MUST** determine whether a failure concerns code, dependencies, environment, permissions, networking, or external services.
+- **MUST** address root causes first for deterministic failures.
+- **MUST** apply limited retries and appropriate backoff for transient failures.
+- **MUST** change diagnostic strategy after two consecutive failures under the same conditions.
+- **MUST** inspect existing state before retrying operations with side effects.
+- **MUST NOT** repeat the same failing command indefinitely.
+- **MUST NOT** claim success by hiding errors, skipping checks, or fabricating results.
+- **SHOULD** retain necessary error evidence.
+- **SHOULD** continue independent, authorized work when external blockers are encountered.
 
-调试过程中产生的日志、脚本和临时补丁必须遵守项目临时目录约定。
+Logs, scripts, and temporary patches created during debugging must follow the project-local temporary-directory conventions.
 
-## 11. 临时资源生命周期与安全回收
+## 11. Temporary Resource Lifecycle and Safe Reclamation
 
-### 11.1 资源创建
+### 11.1 Resource Creation
 
-每项可控临时资源应具有明确的：
+Each controllable temporary resource should have an identifiable:
 
-- **归属**：由哪个任务或 Agent 创建。
-- **用途**：为什么需要该资源。
-- **生命周期**：何时可以结束使用。
-- **清理方式**：通过什么安全机制回收。
-- **保留原因**：是否仍有依赖或需要复核的结果。
+- **Owner**: The task or Agent that created it.
+- **Purpose**: Why the resource is needed.
+- **Lifecycle**: When it may stop being used.
+- **Cleanup method**: How it can be safely reclaimed.
+- **Retention reason**: Whether there are dependencies or results awaiting review.
 
-对普通短任务，目录名称和现有执行上下文可以作为归属依据；复杂任务可在任务目录内记录必要状态。
+For ordinary short tasks, the directory name and existing execution context can establish ownership; complex tasks may record necessary state within the task directory.
 
-### 11.2 正常完成后的清理
+### 11.2 Cleanup After Normal Completion
 
-任务正常完成后，**MUST**：
+When a task finishes normally, **MUST**:
 
-1. 检查当前任务创建的临时文件。
-2. 清理已确认无用的 `scratch/` 和短路径资源。
-3. 处理本任务的后台进程与临时服务。
-4. 复核日志、截图、测试报告及临时备份。
-5. 将需要长期保存的结果转移到正式位置。
-6. 检查本任务使用的 Worktree 是否需要保留。
-7. 保留有效且仍在使用的共享缓存。
-8. 如实报告未能清理或需要保留的资源。
+1. Inspect temporary files created by the current task.
+2. Remove confirmed unused files under `scratch/` and short-path resources.
+3. Handle the task's background processes and temporary services.
+4. Review logs, screenshots, test reports, and temporary backups.
+5. Move results requiring long-term retention to permanent locations.
+6. Determine whether worktrees used by the task need to be retained.
+7. Preserve effective shared caches that remain in use.
+8. Accurately report resources that could not be cleaned up or must be retained.
 
-**MUST NOT** 直接对整个 `tmp/` 执行无条件递归删除。
+**MUST NOT** unconditionally recursively delete the entire `tmp/` directory.
 
-### 11.3 历史资源回收
+### 11.3 Historical Resource Reclamation
 
-对异常中断、旧任务或来源不明的目录，**MUST** 先执行安全检查。
+For directories left by interrupted tasks, old tasks, or unknown sources, **MUST** perform safety checks first.
 
-清理前确认：
+Before cleanup, verify that:
 
-- 资源位于当前授权的项目范围内。
-- 实际路径不存在越界或符号链接逃逸。
-- 资源所有权能够可靠识别。
-- 对应任务已经结束。
-- 没有活跃进程或其他 Agent 正在使用。
-- 没有未提交、未集成或未保存的工作成果。
-- 没有重要测试证据、数据库状态或恢复副本。
-- 没有用户明确要求保留的内容。
+- The resource is within the current project's authorized scope.
+- Its real path does not cross boundaries or escape through symbolic links.
+- Its ownership can be reliably established.
+- The corresponding task has finished.
+- No active process or other Agent is using it.
+- It contains no uncommitted, unintegrated, or unsaved work.
+- It contains no important test evidence, database state, or recovery copies.
+- The user has not explicitly requested that it be retained.
 
-- **SHOULD** 先列出候选资源及预计回收空间。
-- **SHOULD** 优先使用 dry-run 或等效的预览机制。
-- **MUST** 仅清理确认安全且属于当前授权范围的资源。
-- **MUST NOT** 仅凭目录年龄、任务编号或磁盘占用判断可删除性。
-- **MUST NOT** 跟随符号链接进行递归删除。
-- **MUST NOT** 清理其他任务、用户或系统拥有的资源。
-- **MUST NOT** 在无法确认安全的情况下扩大删除范围。
+- **SHOULD** list candidate resources and estimated recoverable space first.
+- **SHOULD** use a dry run or equivalent preview when possible.
+- **MUST** clean up only resources confirmed safe and within the currently authorized scope.
+- **MUST NOT** decide that something is safe to delete based only on directory age, task number, or disk usage.
+- **MUST NOT** follow symbolic links during recursive deletion.
+- **MUST NOT** remove resources owned by other tasks, users, or the system.
+- **MUST NOT** expand the deletion scope when safety cannot be established.
 
-历史资源是否可回收应通过检查结果确定。超过保留期表示需要复查，不能直接作为自动删除依据。
+Whether historical resources may be reclaimed depends on the results of these checks. Expiration of a retention period triggers review; it does not automatically authorize deletion.
 
-### 11.4 自动整理与回收
+### 11.4 Automatic Organization and Reclamation
 
-- **MUST** 在每次任务完成后执行适当的自身资源清理。
-- **SHOULD** 在新任务开始时检查是否存在明显的资源异常。
-- **SHOULD** 对已确认结束、归属明确、没有保留要求的本任务资源进行自动回收。
-- **SHOULD** 保留能明显改善后续构建效率的有效缓存。
-- **MUST** 在自动清理前验证目标路径和资源归属。
-- **MUST** 在清理失败时记录原因并保留现场。
-- **MUST NOT** 对未知历史目录实施无条件定时删除。
-- **MUST NOT** 为完成清理而强制停止其他任务。
+- **MUST** perform appropriate cleanup of the current task's resources at each task completion.
+- **SHOULD** check for obvious resource anomalies at the start of new tasks.
+- **SHOULD** automatically reclaim resources belonging to the current task that are confirmed finished, have clear ownership, and have no retention requirement.
+- **SHOULD** retain effective caches that materially improve future build efficiency.
+- **MUST** verify target paths and resource ownership before automatic cleanup.
+- **MUST** record the reason and preserve the existing state if cleanup fails.
+- **MUST NOT** unconditionally delete unknown historical directories on a schedule.
+- **MUST NOT** forcibly stop other tasks to complete cleanup.
 
-对于长时间运行的项目，优先采用轻量的任务结束清理和按需巡检机制。
+For long-running projects, prefer lightweight end-of-task cleanup and on-demand inspections.
 
-## 12. 依赖与开发环境
+## 12. Dependencies and Development Environment
 
-- **MUST** 优先使用项目现有的包管理器、锁文件和开发工具链。
-- **MUST** 在新增依赖前检查项目是否已有等效能力。
-- **MUST** 优先使用项目级或隔离环境管理开发依赖。
-- **MUST NOT** 擅自升级或修改全局工具链。
-- **MUST NOT** 通过删除锁文件绕过普通依赖冲突。
-- **MUST NOT** 为解决局部问题进行无关的大规模环境修改。
-- **SHOULD** 将可配置的下载缓存与构建中间产物统一管理。
-- **SHOULD** 避免在不同任务中重复安装相同的依赖。
-- **MUST** 保留必要的依赖错误信息，确保失败可诊断。
+- **MUST** prefer the project's existing package managers, lockfiles, and development toolchains.
+- **MUST** check for existing equivalent capabilities before adding dependencies.
+- **MUST** prefer project-local or isolated environments for development dependencies.
+- **MUST NOT** upgrade or modify global toolchains without authorization.
+- **MUST NOT** delete lockfiles to work around ordinary dependency conflicts.
+- **MUST NOT** make unrelated, large-scale environment changes to solve a local problem.
+- **SHOULD** manage configurable download caches and intermediate build artifacts consistently.
+- **SHOULD** avoid reinstalling the same dependencies across tasks unnecessarily.
+- **MUST** retain enough dependency error information to make failures diagnosable.
 
-如项目已有稳定的缓存和依赖管理方案，应优先兼容现有约定。
+If the project already has stable cache and dependency management practices, prioritize compatibility with them.
 
-## 13. 测试验证与工程质量
+## 13. Testing, Verification, and Engineering Quality
 
-- **MUST** 遵守项目已有架构、接口和编码规范。
-- **MUST** 根据实际修改执行适当的格式检查、静态检查和测试。
-- **MUST** 如实记录测试命令及执行结果。
-- **MUST** 区分代码已实现、测试已执行和功能已验证的状态。
-- **MUST NOT** 通过跳过、删除或弱化测试掩盖问题。
-- **MUST NOT** 使用伪造数据或虚假的成功结果作为验收证据。
-- **SHOULD** 覆盖正常路径、错误路径和重要边界条件。
-- **SHOULD** 优先运行受影响范围的测试，再根据风险扩大验证范围。
-- **SHOULD** 避免执行与当前修改无关且成本极高的重复测试。
-- **MUST** 将测试产生的可控临时资源归入项目临时目录。
+- **MUST** follow the project's existing architecture, interfaces, and coding standards.
+- **MUST** run appropriate formatting checks, static checks, and tests according to the actual changes.
+- **MUST** accurately record test commands and execution results.
+- **MUST** distinguish between implemented code, executed tests, and verified functionality.
+- **MUST NOT** conceal problems by skipping, deleting, or weakening tests.
+- **MUST NOT** use fabricated data or false success results as acceptance evidence.
+- **SHOULD** cover normal paths, failure paths, and important edge cases.
+- **SHOULD** test the affected scope first, then broaden verification according to risk.
+- **SHOULD** avoid expensive repeated tests unrelated to the current changes.
+- **MUST** place controllable temporary artifacts generated by tests under the project's temporary directory.
 
-长期运行的 E2E 测试应具有合理的超时、资源检查和失败证据保留机制。
+Long-running E2E tests should have reasonable timeouts, resource checks, and mechanisms for retaining failure evidence.
 
-## 14. 交付检查
+## 14. Delivery Checklist
 
-完成任务前，**MUST** 核对：
+Before completing the task, **MUST** verify:
 
-- [ ] 工作范围符合当前任务授权。
-- [ ] 用户已有文件和未提交修改得到保护。
-- [ ] 可控临时文件集中在项目 `tmp/`。
-- [ ] 系统 `/tmp/` 未被主动访问或清理。
-- [ ] `.gitignore` 正确忽略项目 `/tmp/`。
-- [ ] 没有无意义的重复缓存目录。
-- [ ] 本任务日志及中间产物已适当整理。
-- [ ] 正式 Specs、Tickets 和文档已保存至持久位置。
-- [ ] Git Worktree 中不存在因清理导致的成果丢失。
-- [ ] 数据库及服务运行状态得到保护。
-- [ ] 本任务创建的后台资源已妥善处理。
-- [ ] 无用的任务临时文件已安全清理。
-- [ ] 必要的测试和检查已真实执行。
-- [ ] Git 状态和最终变更范围已检查。
-- [ ] 遗留问题、外部阻塞及保留资源已明确说明。
+- [ ] Work remained within the currently authorized task scope.
+- [ ] Existing user files and uncommitted changes were preserved.
+- [ ] Controllable temporary files were kept under project `tmp/`.
+- [ ] System `/tmp/` was not actively accessed or cleaned up.
+- [ ] `.gitignore` correctly ignores project `/tmp/`.
+- [ ] There are no unnecessary duplicate cache directories.
+- [ ] Logs and intermediate artifacts for the task were organized appropriately.
+- [ ] Final specs, tickets, and documents were saved to persistent locations.
+- [ ] Worktree cleanup caused no loss of work.
+- [ ] Database and service runtime state was preserved.
+- [ ] Background resources created by this task were handled properly.
+- [ ] Unneeded task-specific temporary files were safely cleaned up.
+- [ ] Required tests and checks were actually executed.
+- [ ] Git status and the final change scope were inspected.
+- [ ] Remaining issues, external blockers, and retained resources were clearly reported.
 
-最终交付说明应简洁包含：
+The final delivery summary should briefly include:
 
-1. **完成的修改**：实际完成了什么。
-2. **验证结果**：执行了哪些测试以及结果。
-3. **遗留问题**：尚未完成或仍需关注的事项。
-4. **资源状态**：临时文件、缓存、服务和 Worktree 的处理情况。
+1. **Changes completed**: What was actually done.
+2. **Verification results**: Which tests were run and their outcomes.
+3. **Remaining issues**: What remains incomplete or requires attention.
+4. **Resource status**: How temporary files, caches, services, and worktrees were handled.
 
-对于简单任务，可合并说明，避免冗长报告。
+For simple tasks, combine these items rather than writing an unnecessarily long report.
 
-## 15. 规则适用与冲突
+## 15. Rule Applicability and Conflicts
 
-- 系统、平台及其他更高优先级约束始终适用。
-- 用户明确授权决定当前任务范围；本规则本身不扩大权限。
-- 安全与敏感信息保护遵循 `KEEPSECURED.md`。
-- 实现复杂度、必要性和最小可维护改动遵循 `KEEPLEAN.md`。
-- 项目已有的合理工程约定应当保留和尊重。
-- 发生规则冲突时，**MUST** 优先选择安全、可逆、影响范围较小的方案。
-- 无法安全处理的冲突，**MUST** 报告具体原因。
+- System, platform, and other higher-priority constraints always apply.
+- Explicit user authorization defines the current task scope; these rules do not expand permissions.
+- Security and sensitive-information protection follow `KEEPSECURED.md`.
+- Implementation complexity, necessity, and the smallest maintainable changes follow `KEEPLEAN.md`.
+- Preserve and respect reasonable existing project conventions.
+- When rules conflict, **MUST** choose a safe, reversible, and narrowly scoped approach first.
+- **MUST** report conflicts that cannot be resolved safely.
 
-**所有 Coding Agent 与 Subagent 必须在任务的创建、执行、测试、清理及交付阶段持续遵守本规范。**
+**All Coding Agents and Subagents MUST follow these rules throughout task creation, execution, testing, cleanup, and delivery.**
 
-最终目标是让工程环境长期保持整洁，让临时资源具有明确归属、可预测的生命周期和安全的回收方式，同时保持开发过程高效、简洁、可维护。
+The goal is a consistently tidy engineering environment where temporary resources have clear ownership, predictable lifecycles, and safe reclamation procedures while development remains efficient, straightforward, and maintainable.
