@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { loadRules } from '../src/rules.js';
 import {
   RULES_DIR,
+  agentsNotes,
   installSelection,
   promptSteps,
   ruleTargetPath,
@@ -1118,19 +1119,23 @@ test('rules whose targets differ only by case are reported as a conflict', () =>
 
 // ── Discovery still feeds the install ───────────────────────────────────────
 
+/** The repository's own rules, handed over the way the remote loader would. */
+function shippedRules() {
+  const rulesDir = path.join(ROOT, 'rules');
+
+  return loadRules(
+    readdirSync(rulesDir)
+      .filter((file) => file.endsWith('.md'))
+      .map((file) => ({
+        file,
+        content: readFileSync(path.join(rulesDir, file), 'utf8'),
+      })),
+  );
+}
+
 test('the repository rules install correctly end to end', () => {
   withWorkspace((project) => {
-    // Read the repo's own rule files the way the remote loader would hand them
-    // over: file name + content, nothing else.
-    const rulesDir = path.join(ROOT, 'rules');
-    const rules = loadRules(
-      readdirSync(rulesDir)
-        .filter((file) => file.endsWith('.md'))
-        .map((file) => ({
-          file,
-          content: readFileSync(path.join(rulesDir, file), 'utf8'),
-        })),
-    );
+    const rules = shippedRules();
 
     const report = installSelection({
       rules,
@@ -1147,8 +1152,71 @@ test('the repository rules install correctly end to end', () => {
     assert.equal(read(project, '.gitignore'), '# keeprules: 临时目录\n/tmp/\n');
 
     const agents = read(project, 'AGENTS.md');
+    assert.equal(agents.split('<!-- keeprules:start -->').length - 1, 1, 'one block');
+
     for (const rule of rules) {
       assert.ok(agents.includes(ruleTargetPath(rule)), rule.file);
+      assert.equal(
+        agents.split(`## ${rule.name}\n`).length - 1,
+        1,
+        `${rule.name} appears once`,
+      );
+
+      // Every shipped rule carries the summary an install puts in AGENTS.md.
+      const summary = agentsNotes(rule.content, rule.name);
+
+      assert.ok(summary.length > 0, `${rule.file} declares an AGENTS.md summary`);
+      for (const line of summary) {
+        assert.ok(agents.includes(line), `${rule.name} shows: ${line}`);
+      }
+    }
+
+    // A second run must leave the block exactly as it is: the summaries are not
+    // appended twice and the file is not rewritten.
+    const agentsPath = path.join(project, 'AGENTS.md');
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(agentsPath, old, old);
+    const agentsTime = statSync(agentsPath).mtimeMs;
+
+    const again = installSelection({ rules, cwd: project, confirmed: ['agents'] });
+
+    assert.deepEqual(again.failures, []);
+    assert.ok(again.outcomes.every((outcome) => outcome.level === 'info'));
+    assert.equal(statSync(agentsPath).mtimeMs, agentsTime, 'AGENTS.md was not rewritten');
+    assert.equal(read(project, 'AGENTS.md'), agents, 'the block is idempotent');
+  });
+});
+
+test('updating one rule summary leaves the other sections alone', () => {
+  withWorkspace((project) => {
+    const rules = shippedRules();
+
+    installSelection({ rules, cwd: project, confirmed: ['agents'] });
+
+    // Pretend KEEPTRACK's summary changed upstream.
+    const edited = rules.map((rule) =>
+      rule.name === 'KEEPTRACK'
+        ? {
+            ...rule,
+            content: rule.content.replace(
+              "- Refine and clarify the user's description.",
+              '- Restate the problem in plain terms.',
+            ),
+          }
+        : rule,
+    );
+
+    installSelection({ rules: edited, cwd: project, confirmed: ['agents'] });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.ok(agents.includes('- Restate the problem in plain terms.'));
+    assert.equal(agents.includes("- Refine and clarify the user's description."), false);
+    assert.equal(agents.split('## KEEPTRACK\n').length - 1, 1, 'no duplicate section');
+
+    for (const rule of rules.filter((entry) => entry.name !== 'KEEPTRACK')) {
+      for (const line of agentsNotes(rule.content, rule.name)) {
+        assert.ok(agents.includes(line), `${rule.name} kept: ${line}`);
+      }
     }
   });
 });

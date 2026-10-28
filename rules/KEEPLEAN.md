@@ -82,3 +82,17 @@ Simplification may reduce only unnecessary complexity. The following are non-neg
 - [ ] Disclosed known simplification boundaries and important trade-offs in proportion to their impact.
 
 Final delivery should focus on **what was completed, how it was verified, and which practical limitations remain**. Routine small tasks do not require a lengthy account of the decision-making process.
+
+## Summary for `AGENTS.md`
+
+The `agents` step injects the marked region below into the project's `AGENTS.md`, so the constraints that decide what gets built travel with the reference instead of requiring the whole rule. Keep it behavioral and short.
+
+<!-- keeprules:agents -->
+### Minimal-change principles
+
+- Assess necessity and reuse existing code before adding new implementations or dependencies.
+- Prefer the smallest correct, secure, and maintainable change.
+- Avoid unrelated refactoring, premature abstractions, and unnecessary dependencies.
+- Preserve essential validation, error handling, and security checks.
+- Run relevant tests and report actual verification results.
+<!-- /keeprules:agents -->

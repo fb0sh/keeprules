@@ -576,3 +576,17 @@ For simple tasks, combine these items rather than writing an unnecessarily long 
 **All Coding Agents and Subagents MUST follow these rules throughout task creation, execution, testing, cleanup, and delivery.**
 
 The goal is a consistently tidy engineering environment where temporary resources have clear ownership, predictable lifecycles, and safe reclamation procedures while development remains efficient, straightforward, and maintainable.
+
+## Summary for `AGENTS.md`
+
+The `agents` step injects the marked region below into the project's `AGENTS.md`, so the habits that keep a workspace safe — where temporary files live, what must not be touched, what must be reclaimed — travel with the reference instead of requiring the whole rule. Keep it behavioral and short.
+
+<!-- keeprules:agents -->
+### Engineering hygiene
+
+- Never actively access or clean the system `/tmp/` directory.
+- Store controllable temporary artifacts under the project `tmp/` and ensure it is Git-ignored.
+- Isolate task resources and reuse compatible project caches.
+- Protect user changes, active services, databases, and Git Worktrees.
+- Clean up only verified task-owned resources that are no longer needed.
+<!-- /keeprules:agents -->
