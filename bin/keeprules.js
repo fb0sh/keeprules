@@ -88,7 +88,8 @@ function printHelp() {
       `${pc.bold('规则来源')}`,
       `  ${pc.dim(`默认运行时从 ${REPO_URL} 的 main 分支获取（需要联网）`)}`,
       `  ${pc.dim('第三方仓库只需在 rules/ 下放带 frontmatter 的 .md 文件')}`,
-      `  ${pc.dim('设置 GITHUB_TOKEN 可提高 GitHub API 限额并访问私有仓库')}`,
+      `  ${pc.dim('优先使用 API；失败时回退 git clone（建议安装 git）')}`,
+      `  ${pc.dim('设置 GITHUB_TOKEN 可提高 API 限额并访问私有仓库')}`,
     ].join('\n'),
   );
 }

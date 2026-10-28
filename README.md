@@ -21,13 +21,13 @@ npx keeprules add https://github.com/user/repo
 npx keeprules add user/repo#branch
 ```
 
-不写 `add` 时（`npx keeprules`）等同于安装官方规则。要求 Node.js >= 18，并需要在交互式终端中运行。
+不写 `add` 时（`npx keeprules`）等同于安装官方规则。要求 Node.js >= 18，并需要在交互式终端中运行；建议安装 `git` 以支持 API 不可用时的回退。
 
 ## 使用方法
 
 安装向导会：
 
-1. **从 GitHub 拉取规则**：默认是官方仓库 `fb0sh/keeprules` 的 `main` 分支，也可以用 `add user/repo` 指定任意仓库。CLI 用 GitHub Contents API 列出该仓库 `rules/` 目录下的 `.md` 文件，再逐个下载（每个请求 15 秒超时）。
+1. **从 GitHub 拉取规则**：默认是官方仓库 `fb0sh/keeprules` 的 `main` 分支，也可以用 `add user/repo` 指定任意仓库。CLI 优先用 GitHub Contents API 的 raw media type 下载 `rules/` 下的 `.md` 文件；API 失败或受限时回退到浅克隆（SSH 优先，HTTPS 再回退；`--depth 1 --filter=blob:none --sparse` + `sparse-checkout` 只检出 `rules/`）。单次 API/git 操作 15 秒超时。
 2. 列出所有可用规则，默认不选中。
 3. 询问是否把规则引用写入 `AGENTS.md`。
 4. 把选中的规则文件写入当前项目的 `rules/` 目录；已存在的文件用本次远程内容覆盖。
@@ -37,7 +37,7 @@ npx keeprules add user/repo#branch
 
 > **需要联网。** npm 包里不再包含规则文件，规则总是从仓库获取。
 > 拉取失败会直接报错退出，不会退回任何本地副本。私有仓库需要设置
-> `GITHUB_TOKEN`；公开仓库设置它也可以提高 GitHub API 的速率限制。
+> `GITHUB_TOKEN`（API 限额和私有仓库）或本机 git 凭据；公开仓库通常不需要。
 
 `--help` 和 `--version` 不联网，可以离线使用。
 
@@ -108,7 +108,7 @@ npx keeprules add user/repo#release/1.0  # 分支名可以带斜杠
 ```
 
 也可以直接传完整的 GitHub URL，或带 `.git` 后缀的仓库地址。私有仓库需要
-`GITHUB_TOKEN`：
+`GITHUB_TOKEN`（API 请求头；clone 回退时通过 git HTTP 头传入，不写进 URL）：
 
 ```bash
 GITHUB_TOKEN=ghp_xxx npx keeprules add user/private-repo
@@ -171,7 +171,7 @@ your-repo/
 
 ```
 GitHub 仓库的 rules/*.md
-        ↓  GitHub Contents API 列出目录，再下载每个 .md
+        ↓  API raw 下载；失败时 git 浅克隆 + sparse checkout
 项目的 rules/*.md（选中项始终采用远程内容）
 ```
 
@@ -221,11 +221,11 @@ src/install.js     写入策略：远程覆盖、原子替换、两个步骤怎�
 src/rules.js       规则解析：frontmatter → 规则记录（不碰磁盘和网络）
 src/picker.js      选择器：文本宽度 + 状态机 + 终端适配
 src/prompts.js     把 clack 和选择器的「取消/拒绝/作答」统一
-src/remote.js      解析来源，用 GitHub Contents API 列目录并下载规则
+src/remote.js      解析来源；API raw 优先，失败回退 git clone 并读取 rules/
 ```
 
 依赖方向：`bin → flow → install`，`bin → prompts → picker`，`bin → remote → rules`。
-`rules.js` 只解析、不碰磁盘和网络，所以能直接用假 fetch 测试。
+`rules.js` 只解析、不碰磁盘和网络，所以能直接用内存夹具测试。
 
 ## 常见改动
 
@@ -246,7 +246,7 @@ src/remote.js      解析来源，用 GitHub Contents API 列目录并下载规�
 - 追加 `.gitignore` 与 `AGENTS.md` 时沿用文件原有的换行（CRLF/LF）与 BOM。
 - 排序用码点比较，不依赖 locale 与 ICU 版本。
 - 不依赖 shell，不使用 `chmod`、`/dev/*`、`os.tmpdir()` 等平台特定行为。
-- 拉取只依赖 Node 18+ 自带的 `fetch`，没有额外 HTTP 依赖；API 与 raw 下载共用同一个超时。
+- 回退路径通过 Node 的 `execFile` 调用本机 `git`，不经过 shell；需要支持 sparse checkout 的 git（2.25+）；API 路径不需要 git。
 - 原子替换只使用 Node 自带的 `rename`；符号链接检查使用 `lstat` / `realpath`，不依赖平台特定命令。
 
 CI 在 Ubuntu / macOS / Windows × Node 18/20/22 上运行 `npm test`。
@@ -286,7 +286,7 @@ npm pack
 
 mkdir demo && cd demo
 npm init -y
-npm install ../keeprules-3.1.1.tgz
+npm install ../keeprules-3.2.0.tgz
 npx keeprules add
 ```
 

@@ -1,50 +1,71 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   DEFAULT_BRANCH,
   DEFAULT_SOURCE,
+  DEFAULT_TIMEOUT_MS,
   REPO_URL,
+  cloneRepository,
   fetchRules,
   parseSource,
 } from '../src/remote.js';
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 const API = 'https://api.github.com';
-const RAW = 'https://raw.githubusercontent.com';
 
-const contentsUrl = (source, branch = 'main') =>
-  `${API}/repos/${source}/contents/rules?ref=${encodeURIComponent(branch)}`;
+const apiDown = async () => {
+  throw new Error('API unavailable');
+};
 
-const repoUrl = (source) => `${API}/repos/${source}`;
-
-const rawUrl = (source, file, branch = 'main') =>
-  `${RAW}/${source}/${branch}/rules/${file}`;
-
-function reply(status, body) {
-  return { ok: status >= 200 && status < 300, status, text: async () => body };
-}
-
-/** A fake GitHub API. Every request is recorded; unknown URLs are 404. */
-function github(routes) {
-  const calls = [];
-
-  const fetchImpl = async (url, init = {}) => {
-    calls.push({ url, headers: init.headers ?? {} });
-    const route = routes[url];
-
-    if (route === undefined) return reply(404, '{"message":"Not Found"}');
-    return typeof route === 'function' ? route(url, init) : route;
-  };
-
-  return { fetchImpl, calls };
-}
-
-function entry(name, source = 'fb0sh/keeprules', branch = 'main') {
+function apiReply(body, status = 200) {
   return {
-    type: 'file',
-    name,
-    download_url: `${RAW}/${source}/${branch}/rules/${name}`,
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
   };
+}
+
+/** A scratch project plus a sibling area for symlink targets. */
+async function withProject(fn) {
+  mkdirSync(TMP_ROOT, { recursive: true });
+  const workspace = mkdtempSync(path.join(TMP_ROOT, 'remote-'));
+  const project = path.join(workspace, 'project');
+  mkdirSync(project);
+
+  try {
+    return await fn(project, workspace);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
+/** A fake clone that writes the given `rules/` files into the destination. */
+function cloneWriting(files, calls = []) {
+  const cloneImpl = async (repo, destination, options) => {
+    calls.push({ repo, destination, options });
+
+    for (const [name, content] of Object.entries(files)) {
+      const dir = path.join(destination, 'rules');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, name), content);
+    }
+  };
+
+  return { cloneImpl, calls };
 }
 
 const TIDY = [
@@ -61,25 +82,20 @@ const TIDY = [
 
 const SECURED = '---\nid: keepsecured\nname: KEEPSECURED\n---\n# KEEPSECURED\n';
 
-/** The happy path: a directory listing plus two rule files. */
-function healthy(source = 'fb0sh/keeprules', branch = 'main') {
-  return github({
-    [contentsUrl(source, branch)]: reply(
-      200,
-      JSON.stringify([
-        entry('KEEPTIDY.md', source, branch),
-        entry('KEEPSECURED.md', source, branch),
-        { type: 'dir', name: 'nested', download_url: null },
-        {
-          type: 'file',
-          name: 'index.json',
-          download_url: `${RAW}/${source}/${branch}/rules/index.json`,
-        },
-      ]),
-    ),
-    [rawUrl(source, 'KEEPSECURED.md', branch)]: reply(200, SECURED),
-    [rawUrl(source, 'KEEPTIDY.md', branch)]: reply(200, TIDY),
-  });
+/** Skip a test when the platform cannot create a symlink. */
+function supportsSymlinks(project, t) {
+  const target = path.join(project, 'symlink-target');
+  const link = path.join(project, 'symlink-probe');
+  writeFileSync(target, '');
+
+  try {
+    symlinkSync(target, link, 'file');
+    rmSync(link, { force: true });
+    return true;
+  } catch {
+    t.skip('symlinks are not available on this platform');
+    return false;
+  }
 }
 
 // ── source parsing ──────────────────────────────────────────────────────────
@@ -95,6 +111,7 @@ test('the default source is the official repository on main', () => {
   assert.equal(DEFAULT_SOURCE, 'fb0sh/keeprules');
   assert.equal(DEFAULT_BRANCH, 'main');
   assert.equal(REPO_URL, 'https://github.com/fb0sh/keeprules');
+  assert.equal(DEFAULT_TIMEOUT_MS, 15000);
 });
 
 test('all documented source forms resolve to the same repository and branch', () => {
@@ -158,280 +175,475 @@ test('unrecognized sources are rejected with the accepted forms', () => {
   }
 });
 
-// ── happy path ──────────────────────────────────────────────────────────────
+// ── API raw ────────────────────────────────────────────────────────────────
 
-test('the Contents API listing drives which files are fetched and parsed', async () => {
-  const { fetchImpl, calls } = healthy();
+test('fetchRules prefers API raw content over cloning', async () => {
+  await withProject(async (project) => {
+    const listing =
+      `${API}/repos/user/repo/contents/rules?ref=dev`;
+    const file =
+      `${API}/repos/user/repo/contents/rules/DEMO.md?ref=dev`;
+    const calls = [];
+    let cloned = false;
 
-  const rules = await fetchRules({ fetchImpl, token: null });
+    const fetchImpl = async (url, init = {}) => {
+      calls.push({ url, headers: init.headers ?? {} });
 
-  assert.deepEqual(
-    rules.map((rule) => rule.id),
-    ['keepsecured', 'keeptidy'],
-  );
-  assert.deepEqual(rules[1].postInstall, ['gitignore', 'agents']);
-  assert.equal(rules[1].content, TIDY, 'the raw content is kept, ready to write');
+      if (url === listing) {
+        return apiReply(
+          JSON.stringify([{ type: 'file', name: 'DEMO.md', url: file }]),
+        );
+      }
 
-  assert.deepEqual(
-    calls.map((call) => call.url),
-    [
-      contentsUrl('fb0sh/keeprules'),
-      rawUrl('fb0sh/keeprules', 'KEEPSECURED.md'),
-      rawUrl('fb0sh/keeprules', 'KEEPTIDY.md'),
-    ],
-  );
-  assert.equal(calls[0].headers.Authorization, undefined);
-});
+      if (url === file) return apiReply('# DEMO\n');
+      return apiReply('{"message":"Not Found"}', 404);
+    };
 
-test('a third-party repository and branch are fetched from their own URLs', async () => {
-  const { fetchImpl, calls } = healthy('user/repo', 'dev');
+    const rules = await fetchRules({
+      cwd: project,
+      fetchImpl,
+      cloneImpl: async () => {
+        cloned = true;
+      },
+      source: 'user/repo#dev',
+      token: null,
+    });
 
-  const rules = await fetchRules({ fetchImpl, source: 'user/repo#dev', token: null });
-
-  assert.deepEqual(
-    rules.map((rule) => rule.id),
-    ['keepsecured', 'keeptidy'],
-  );
-  assert.equal(calls[0].url, contentsUrl('user/repo', 'dev'));
-  assert.equal(calls[0].url, `${API}/repos/user/repo/contents/rules?ref=dev`);
-});
-
-test('an https source is accepted by fetchRules', async () => {
-  const { fetchImpl, calls } = healthy('user/repo');
-
-  const rules = await fetchRules({
-    fetchImpl,
-    source: 'https://github.com/user/repo',
-    token: null,
+    assert.equal(rules[0].id, 'DEMO');
+    assert.equal(cloned, false);
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].headers.Accept, 'application/vnd.github+json');
+    assert.equal(calls[1].headers.Accept, 'application/vnd.github.raw');
+    assert.equal(calls[0].headers.Authorization, undefined);
   });
-
-  assert.equal(rules.length, 2);
-  assert.equal(calls[0].url, contentsUrl('user/repo'));
 });
 
-test('a missing download_url falls back to raw.githubusercontent.com', async () => {
-  const source = 'fb0sh/keeprules';
-  const file = 'BARE.md';
-  const { fetchImpl, calls } = github({
-    [contentsUrl(source)]: reply(200, JSON.stringify([{ type: 'file', name: file }])),
-    [rawUrl(source, file)]: reply(200, '# Bare title\n\nBody.\n'),
+test('the API path sends GITHUB_TOKEN', async () => {
+  await withProject(async (project) => {
+    const listing =
+      `${API}/repos/user/repo/contents/rules?ref=main`;
+    const file =
+      `${API}/repos/user/repo/contents/rules/DEMO.md?ref=main`;
+    const calls = [];
+
+    const fetchImpl = async (url, init = {}) => {
+      calls.push({ url, headers: init.headers ?? {} });
+      if (url === listing) {
+        return apiReply(
+          JSON.stringify([{ type: 'file', name: 'DEMO.md', url: file }]),
+        );
+      }
+      return apiReply('# DEMO\n');
+    };
+
+    await fetchRules({
+      cwd: project,
+      fetchImpl,
+      cloneImpl: async () => {
+        throw new Error('clone should not run');
+      },
+      source: 'user/repo',
+      token: 'secret-token',
+    });
+
+    for (const call of calls) {
+      assert.equal(call.headers.Authorization, 'Bearer secret-token');
+    }
   });
-
-  const [rule] = await fetchRules({ fetchImpl, token: null });
-
-  assert.deepEqual(calls.map((call) => call.url), [
-    contentsUrl(source),
-    rawUrl(source, file),
-  ]);
-  assert.equal(rule.id, 'BARE');
-  assert.equal(rule.description, 'Bare title');
 });
 
-test('a GITHUB_TOKEN is sent to both the API and raw downloads', async () => {
-  const { fetchImpl, calls } = healthy();
+// ── fetch: clone + read rules/ ──────────────────────────────────────────────
 
-  await fetchRules({ fetchImpl, token: 'secret-token' });
+test('fetchRules clones the default source and reads rules/', async () => {
+  await withProject(async (project) => {
+    const calls = [];
+    const { cloneImpl } = cloneWriting(
+      { 'KEEPSECURED.md': SECURED, 'KEEPTIDY.md': TIDY },
+      calls,
+    );
 
-  assert.equal(calls.length, 3);
-  for (const { headers } of calls) {
-    assert.equal(headers.Authorization, 'Bearer secret-token');
-  }
+    const rules = await fetchRules({ cwd: project, cloneImpl, fetchImpl: apiDown, token: null });
+
+    assert.deepEqual(
+      rules.map((rule) => rule.id),
+      ['keepsecured', 'keeptidy'],
+    );
+    assert.deepEqual(rules[1].postInstall, ['gitignore', 'agents']);
+    assert.equal(rules[1].content, TIDY);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].repo.label, DEFAULT_SOURCE);
+    assert.equal(calls[0].repo.branch, DEFAULT_BRANCH);
+    assert.equal(calls[0].options.token, null);
+    assert.equal(calls[0].options.timeoutMs, DEFAULT_TIMEOUT_MS);
+    assert.ok(
+      calls[0].destination.startsWith(`${path.join(project, 'tmp')}${path.sep}`),
+      'the clone lives under the project temp directory',
+    );
+    assert.equal(existsSync(path.join(project, 'tmp')), false, 'temp dir is cleaned');
+  });
 });
 
-test('GITHUB_TOKEN in the environment is used by default', async () => {
+test('a third-party repository and branch are handed to git', async () => {
+  await withProject(async (project) => {
+    const calls = [];
+    const { cloneImpl } = cloneWriting({ 'DEMO.md': '# DEMO\n' }, calls);
+
+    const rules = await fetchRules({
+      cwd: project,
+      cloneImpl,
+      fetchImpl: apiDown,
+      source: 'user/repo#dev',
+      token: null,
+    });
+
+    assert.equal(rules[0].id, 'DEMO');
+    assert.equal(calls[0].repo.owner, 'user');
+    assert.equal(calls[0].repo.repo, 'repo');
+    assert.equal(calls[0].repo.branch, 'dev');
+    assert.equal(calls[0].repo.label, 'user/repo#dev');
+  });
+});
+
+test('a full GitHub URL is accepted by fetchRules', async () => {
+  await withProject(async (project) => {
+    const calls = [];
+    const { cloneImpl } = cloneWriting({ 'DEMO.md': '# DEMO\n' }, calls);
+
+    await fetchRules({
+      cwd: project,
+      cloneImpl,
+      fetchImpl: apiDown,
+      source: 'https://github.com/user/repo',
+      token: null,
+    });
+
+    assert.equal(calls[0].repo.label, 'user/repo');
+  });
+});
+
+test('GITHUB_TOKEN in the environment is passed to the clone', async () => {
   const before = process.env.GITHUB_TOKEN;
   process.env.GITHUB_TOKEN = 'env-token';
 
   try {
-    const { fetchImpl, calls } = healthy();
-    await fetchRules({ fetchImpl });
+    await withProject(async (project) => {
+      const calls = [];
+      const { cloneImpl } = cloneWriting({ 'DEMO.md': '# DEMO\n' }, calls);
 
-    assert.equal(calls[0].headers.Authorization, 'Bearer env-token');
+      await fetchRules({ cwd: project, cloneImpl, fetchImpl: apiDown });
+
+      assert.equal(calls[0].options.token, 'env-token');
+    });
   } finally {
     if (before === undefined) delete process.env.GITHUB_TOKEN;
     else process.env.GITHUB_TOKEN = before;
   }
 });
 
-// ── repository and directory failures ───────────────────────────────────────
+test('a repository without a rules/ directory is rejected', async () => {
+  await withProject(async (project) => {
+    const calls = [];
+    const { cloneImpl } = cloneWriting({}, calls);
 
-test('a missing repository is reported as missing, after a repo probe', async () => {
-  const { fetchImpl, calls } = github({
-    [contentsUrl('user/repo')]: reply(404, '{"message":"Not Found"}'),
-    [repoUrl('user/repo')]: reply(404, '{"message":"Not Found"}'),
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /仓库 user\/repo 中没有 rules\/ 目录/,
+    );
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
   });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, source: 'user/repo', token: null }),
-    /仓库不存在或无权访问: user\/repo/,
-  );
-  assert.deepEqual(calls.map((call) => call.url), [
-    contentsUrl('user/repo'),
-    repoUrl('user/repo'),
-  ]);
 });
 
-test('a repository without rules/ says so, after a repo probe', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('user/repo')]: reply(404, '{"message":"Not Found"}'),
-    [repoUrl('user/repo')]: reply(200, '{"full_name":"user/repo"}'),
+test('a rules path that is a file is rejected', async () => {
+  await withProject(async (project) => {
+    const cloneImpl = async (_repo, destination) => {
+      writeFileSync(path.join(destination, 'rules'), 'NOT A DIRECTORY\n');
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /rules\/ 不是目录/,
+    );
   });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, source: 'user/repo', token: null }),
-    /仓库 user\/repo 中没有 rules\/ 目录/,
-  );
-});
-
-test('the rules path being a file is not treated as a directory', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('user/repo')]: reply(
-      200,
-      JSON.stringify({ type: 'file', name: 'rules' }),
-    ),
-  });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, source: 'user/repo', token: null }),
-    /不是目录/,
-  );
 });
 
 test('an empty rules/ directory is rejected', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('user/repo')]: reply(
-      200,
-      JSON.stringify([{ type: 'dir', name: 'nested' }]),
-    ),
-  });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, source: 'user/repo', token: null }),
-    /没有 \.md 规则文件/,
-  );
-});
-
-test('HTML instead of JSON is reported as a bad API response', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('fb0sh/keeprules')]: reply(200, '<html>oops</html>'),
-  });
-
-  await assert.rejects(fetchRules({ fetchImpl, token: null }), /不是合法 JSON/);
-});
-
-// ── HTTP and network failures ───────────────────────────────────────────────
-
-test('rate limiting suggests GITHUB_TOKEN', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('fb0sh/keeprules')]: reply(
-      403,
-      '{"message":"API rate limit exceeded"}',
-    ),
-  });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, token: null }),
-    /速率限制.*GITHUB_TOKEN/,
-  );
-});
-
-test('a bad token is named as the problem', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('fb0sh/keeprules')]: reply(401, '{"message":"Bad credentials"}'),
-  });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, token: 'bad' }),
-    /GITHUB_TOKEN 无效或已过期/,
-  );
-});
-
-test('an unreachable repository fails with a readable reason', async () => {
-  const refusing = async () => {
-    throw new TypeError('fetch failed');
-  };
-
-  await assert.rejects(
-    fetchRules({ fetchImpl: refusing, token: null }),
-    /无法访问 fb0sh\/keeprules 的 rules\/ 目录（fetch failed）/,
-  );
-});
-
-test('a slow repository times out instead of hanging', async () => {
-  const hanging = (_url, { signal }) =>
-    new Promise((_, reject) => {
-      signal.addEventListener('abort', () => {
-        const error = new Error('aborted');
-        error.name = 'AbortError';
-        reject(error);
-      });
-    });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl: hanging, timeoutMs: 20, token: null }),
-    /连接超时（>0\.02s）/,
-  );
-});
-
-test(
-  'a response body that never finishes also times out',
-  { timeout: 1000 },
-  async () => {
-    const hangingBody = (_url, { signal }) =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        text: () =>
-          new Promise((_, reject) => {
-            signal.addEventListener('abort', () => {
-              const error = new Error('aborted');
-              error.name = 'AbortError';
-              reject(error);
-            });
-          }),
-      });
+  await withProject(async (project) => {
+    const { cloneImpl } = cloneWriting({ 'README.txt': 'not a rule' });
 
     await assert.rejects(
-      fetchRules({ fetchImpl: hangingBody, timeoutMs: 20, token: null }),
-      /连接超时（>0\.02s）/,
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /没有 \.md 规则文件/,
     );
-  },
-);
-
-test('a rule file that cannot be fetched names the file', async () => {
-  const source = 'fb0sh/keeprules';
-  const { fetchImpl } = github({
-    [contentsUrl(source)]: reply(200, JSON.stringify([entry('MISSING.md')])),
-    [rawUrl(source, 'MISSING.md')]: reply(500, ''),
   });
-
-  await assert.rejects(
-    fetchRules({ fetchImpl, token: null }),
-    /无法读取 MISSING\.md（GitHub 服务异常（HTTP 500））/,
-  );
 });
 
-test('a file name that could escape the rules directory is refused', async () => {
-  const { fetchImpl } = github({
-    [contentsUrl('user/repo')]: reply(
-      200,
-      JSON.stringify([{ type: 'file', name: '../secret.md' }]),
-    ),
-  });
+test('a symlinked rule file is refused and never read', async (t) => {
+  await withProject(async (project) => {
+    if (!supportsSymlinks(project, t)) return;
 
-  await assert.rejects(
-    fetchRules({ fetchImpl, source: 'user/repo', token: null }),
-    /规则文件名不合法/,
-  );
+    const outside = path.join(project, 'outside.md');
+    writeFileSync(outside, '# OUTSIDE\n');
+    const cloneImpl = async (_repo, destination) => {
+      const rules = path.join(destination, 'rules');
+      mkdirSync(rules);
+      symlinkSync(outside, path.join(rules, 'LINK.md'), 'file');
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /符号链接/,
+    );
+  });
 });
 
-test('a platform without fetch says so instead of crashing', async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = undefined;
+test('a symlinked project tmp/ directory is refused before cloning', async (t) => {
+  await withProject(async (project, workspace) => {
+    if (!supportsSymlinks(project, t)) return;
 
-  try {
-    await assert.rejects(fetchRules(), /需要 Node 18/);
-  } finally {
-    globalThis.fetch = original;
+    const outside = path.join(workspace, 'outside-tmp');
+    mkdirSync(outside);
+    symlinkSync(outside, path.join(project, 'tmp'), 'dir');
+
+    let cloned = false;
+    const cloneImpl = async () => {
+      cloned = true;
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /tmp\/ 是符号链接/,
+    );
+    assert.equal(cloned, false);
+    assert.deepEqual(readdirSync(outside), []);
+  });
+});
+
+test('a clone failure leaves no temporary directory behind', async () => {
+  await withProject(async (project) => {
+    const cloneImpl = async () => {
+      throw new Error('仓库不存在或无权访问: user/repo');
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /仓库不存在或无权访问/,
+    );
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
+  });
+});
+
+test('an invalid source is rejected before creating a temp directory', async () => {
+  await withProject(async (project) => {
+    let cloned = false;
+    const cloneImpl = async () => {
+      cloned = true;
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo/extra',
+        token: null,
+      }),
+      /无法识别的规则来源/,
+    );
+    assert.equal(cloned, false);
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
+  });
+});
+
+test('fetchRules falls back from API to SSH clone before HTTPS', async () => {
+  await withProject(async (project) => {
+    const protocols = [];
+    const cloneImpl = async (_repo, destination, options) => {
+      protocols.push(options.protocol);
+
+      if (options.protocol === 'ssh') {
+        throw new Error('ssh clone unavailable');
+      }
+
+      mkdirSync(path.join(destination, 'rules'), { recursive: true });
+      writeFileSync(path.join(destination, 'rules', 'DEMO.md'), '# DEMO\n');
+    };
+
+    const rules = await fetchRules({
+      cwd: project,
+      cloneImpl,
+      fetchImpl: apiDown,
+      source: 'user/repo',
+      token: null,
+    });
+
+    assert.equal(rules[0].id, 'DEMO');
+    assert.deepEqual(protocols, ['ssh', 'https']);
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
+  });
+});
+
+test('fetchRules reports both API and clone failures', async () => {
+  await withProject(async (project) => {
+    const cloneImpl = async () => {
+      throw new Error('clone unavailable');
+    };
+
+    await assert.rejects(
+      fetchRules({
+        cwd: project,
+        cloneImpl,
+        fetchImpl: apiDown,
+        source: 'user/repo',
+        token: null,
+      }),
+      /API unavailable.*clone 回退失败.*clone unavailable/s,
+    );
+  });
+});
+
+// ── clone command and errors ────────────────────────────────────────────────
+
+test('cloneRepository performs a shallow sparse clone with token auth', async () => {
+  const calls = [];
+  const destination = path.join(ROOT, 'tmp', 'runs', 'fake-clone');
+  const execFileImpl = async (file, args, options) => {
+    calls.push({ file, args, options });
+    return { stdout: '', stderr: '' };
+  };
+
+  await cloneRepository(parseSource('user/repo#dev'), destination, {
+    execFileImpl,
+    token: 'secret-token',
+    timeoutMs: 1234,
+  });
+
+  assert.equal(calls.length, 2);
+
+  const [clone, sparse] = calls;
+  assert.equal(clone.file, 'git');
+  assert.equal(clone.args[0], 'clone');
+  assert.equal(clone.args[clone.args.indexOf('--branch') + 1], 'dev');
+  assert.ok(clone.args.includes('--depth'));
+  assert.ok(clone.args.includes('--single-branch'));
+  assert.ok(clone.args.includes('--filter=blob:none'));
+  assert.ok(clone.args.includes('--sparse'));
+  assert.ok(clone.args.includes('https://github.com/user/repo.git'));
+  assert.equal(clone.args.at(-1), destination);
+  assert.equal(clone.options.timeout, 1234);
+  assert.equal(clone.options.env.GIT_TERMINAL_PROMPT, '0');
+  assert.equal(clone.options.env.GIT_LFS_SKIP_SMUDGE, '1');
+  assert.equal(
+    clone.options.env.GIT_CONFIG_VALUE_0,
+    `Authorization: basic ${Buffer.from('x-access-token:secret-token').toString('base64')}`,
+  );
+  assert.deepEqual(sparse.args, [
+    '-C',
+    destination,
+    'sparse-checkout',
+    'set',
+    'rules',
+  ]);
+});
+
+test('cloneRepository can use the SSH transport', async () => {
+  const calls = [];
+  const execFileImpl = async (_file, args, options) => {
+    calls.push({ args, options });
+    return { stdout: '', stderr: '' };
+  };
+
+  await cloneRepository(parseSource('user/repo'), '/tmp/fake-clone', {
+    protocol: 'ssh',
+    execFileImpl,
+    token: null,
+  });
+
+  assert.ok(calls[0].args.includes('ssh://git@github.com/user/repo.git'));
+  assert.equal(calls[0].options.env.GIT_SSH_COMMAND, 'ssh -o BatchMode=yes');
+  assert.equal(calls[0].options.env.GIT_CONFIG_COUNT, undefined);
+});
+
+test('cloneRepository omits auth when no token is available', async () => {
+  const calls = [];
+  const execFileImpl = async (_file, _args, options) => {
+    calls.push(options);
+    return { stdout: '', stderr: '' };
+  };
+
+  await cloneRepository(parseSource('user/repo'), '/tmp/fake-clone', {
+    execFileImpl,
+    token: null,
+  });
+
+  assert.equal(calls[0].env.GIT_CONFIG_COUNT, undefined);
+});
+
+test('cloneRepository explains common git failures', async () => {
+  const repo = parseSource('user/repo#dev');
+  const destination = path.join(ROOT, 'tmp', 'runs', 'fake-clone');
+
+  const cases = [
+    [{ code: 'ENOENT' }, /未找到 git/],
+    [{ stderr: 'remote: Repository not found.\nfatal: unable' }, /仓库不存在或无权访问/],
+    [{ stderr: 'fatal: Authentication failed for repo' }, /认证失败/],
+    [{ stderr: 'fatal: Remote branch dev not found in upstream origin' }, /分支不存在.*dev/],
+    [{ killed: true, signal: 'SIGTERM' }, /超时/],
+    [
+      { stderr: 'fatal: unable to access repo: Could not resolve host: github.com' },
+      /无法连接 GitHub/,
+    ],
+  ];
+
+  for (const [error, expected] of cases) {
+    const execFileImpl = async () => {
+      throw error;
+    };
+
+    await assert.rejects(
+      cloneRepository(repo, destination, {
+        execFileImpl,
+        token: null,
+        timeoutMs: 15000,
+      }),
+      expected,
+    );
   }
 });

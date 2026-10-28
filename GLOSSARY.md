@@ -24,10 +24,12 @@ The npm package ships no rules, so an install always reflects the repository as
 it is right now — and an install with no network fails rather than silently
 using an older set.
 
-The Contents API lists `rules/` (HTTP cannot list a directory over raw
-downloads); there is no manifest. A third-party repository is valid as soon as
-its `rules/` contains a `.md` file, and `GITHUB_TOKEN` can be supplied for rate
-limits and private repositories.
+Rules are fetched through the GitHub API raw media type first. If that fails or
+is rate-limited, the repository is shallow-cloned into the project's `tmp/`
+directory and `sparse-checkout` limits the working tree to `rules/`; SSH is tried
+before HTTPS. There is no manifest and no raw CDN dependency. A third-party
+repository is valid as soon as its `rules/` contains a `.md` file, and
+`GITHUB_TOKEN` can be supplied for API limits and private repositories.
 
 ## Rule file
 

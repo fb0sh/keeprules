@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -60,9 +61,10 @@ test('unknown commands and flags exit non-zero', () => {
   assert.match(flag.stderr, /未知选项/);
 });
 
-test('a failed remote fetch leaves local rule files untouched', async () => {
+test('a failed rule download leaves local rule files untouched', async () => {
   const { main } = await import('../bin/keeprules.js');
   const originalCwd = process.cwd();
+  const originalPath = process.env.PATH;
   const originalFetch = globalThis.fetch;
   const originalStdout = process.stdout.write;
   const originalStderr = process.stderr.write;
@@ -71,20 +73,22 @@ test('a failed remote fetch leaves local rule files untouched', async () => {
   const originalSetRawMode = process.stdin.setRawMode;
 
   mkdirSync(TMP_ROOT, { recursive: true });
-  const project = mkdtempSync(path.join(TMP_ROOT, 'fetch-failure-'));
+  const project = mkdtempSync(path.join(TMP_ROOT, 'clone-failure-'));
   mkdirSync(path.join(project, 'rules'));
+  mkdirSync(path.join(project, 'no-git'));
   writeFileSync(path.join(project, 'rules', 'RULE.md'), 'LOCAL COPY\n');
 
   try {
     process.chdir(project);
+    process.env.PATH = path.join(project, 'no-git');
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
     process.stdin.isTTY = true;
     process.stdout.isTTY = true;
     process.stdout.write = () => true;
     process.stderr.write = () => true;
     process.stdin.setRawMode = () => {};
-    globalThis.fetch = async () => {
-      throw new TypeError('fetch failed');
-    };
 
     const code = await main(['add']);
 
@@ -93,15 +97,17 @@ test('a failed remote fetch leaves local rule files untouched', async () => {
       readFileSync(path.join(project, 'rules', 'RULE.md'), 'utf8'),
       'LOCAL COPY\n',
     );
+    assert.equal(existsSync(path.join(project, 'tmp')), false);
   } finally {
     process.chdir(originalCwd);
+    process.env.PATH = originalPath;
+    globalThis.fetch = originalFetch;
     process.stdin.isTTY = originalStdinTTY;
     process.stdout.isTTY = originalStdoutTTY;
     process.stdout.write = originalStdout;
     process.stderr.write = originalStderr;
     if (originalSetRawMode === undefined) delete process.stdin.setRawMode;
     else process.stdin.setRawMode = originalSetRawMode;
-    globalThis.fetch = originalFetch;
     rmSync(project, { recursive: true, force: true });
   }
 });
