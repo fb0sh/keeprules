@@ -1,84 +1,84 @@
 ---
 id: keeplean
 name: KEEPLEAN
-description: Coding Agent 精简变更规范（必要性判断、复用优先、最小可维护改动、安全与正确性边界）
+description: Coding Agent minimal-change rules (necessity assessment, reuse first, smallest maintainable changes, and safety and correctness boundaries)
 postInstall:
   - agents
 ---
 
-# KEEPLEAN — 精简变更规范
+# KEEPLEAN — Minimal-Change Engineering Rules
 
-适用于当前项目内的 Coding Agent 及其委派的 Subagent。
+Applies to Coding Agents working in the current project and any Subagents they delegate work to.
 
-**核心原则：只实现当前任务必需的能力，优先复用成熟方案，以最小可维护改动完成可验证的结果。**
+**Core principle: Implement only what the current task requires, reuse proven solutions first, and deliver verifiable results through the smallest maintainable change.**
 
-**MUST** 表示必须执行，**MUST NOT** 表示禁止执行，**SHOULD** 表示默认执行、存在合理原因时可调整。
+**MUST** indicates a mandatory requirement; **MUST NOT** indicates a prohibition; **SHOULD** indicates the default behavior, which may be adjusted for a justified reason.
 
-## 1. 实现前的决策流程
+## 1. Decision Process Before Implementation
 
-在新增代码、依赖、抽象或配置前，**MUST** 按以下顺序判断：
+Before adding code, dependencies, abstractions, or configuration, **MUST** evaluate the following in order:
 
-1. **必要性：** 当前任务是否确实需要这项能力？若不需要，跳过；若需要，继续。
-2. **项目复用：** 现有函数、组件、服务、工具或约定能否合理满足需求？若可以，优先复用。
-3. **平台复用：** 语言标准库、运行时或平台原生能力能否合理满足需求？若可以，优先使用。
-4. **依赖复用：** 现有已安装依赖能否合理满足需求？若可以，优先使用。
-5. **必要新增：** 前述方案不足时，在自研实现与成熟依赖之间，依据安全性、正确性、复杂度和维护成本选择最小合理方案。
+1. **Necessity:** Does the current task actually require this capability? If not, skip it; otherwise, continue.
+2. **Project reuse:** Can existing functions, components, services, tools, or conventions reasonably meet the requirement? If so, reuse them first.
+3. **Platform reuse:** Can the language standard library, runtime, or platform-native capabilities reasonably meet the requirement? If so, prefer them.
+4. **Dependency reuse:** Can an existing installed dependency reasonably meet the requirement? If so, prefer it.
+5. **Necessary additions:** If the preceding options are insufficient, choose the smallest reasonable solution between a custom implementation and a mature dependency, considering security, correctness, complexity, and maintenance cost.
 
-- **MUST** 只在找到满足功能、正确性、安全和可维护性要求的方案后结束决策。
-- **MUST NOT** 因“将来可能使用”而提前增加抽象层、扩展点、插件系统或配置项。
-- **SHOULD** 对小改动直接实施，无需为上述判断生成冗长的独立分析文档。
+- **MUST** conclude this decision process only after identifying an approach that satisfies functional, correctness, security, and maintainability requirements.
+- **MUST NOT** add abstraction layers, extension points, plugin systems, or configuration options prematurely merely because they "might be useful later."
+- **SHOULD** implement small changes directly without producing lengthy, standalone analysis documents for these decisions.
 
-## 2. 改动范围与最小可维护实现
+## 2. Change Scope and the Smallest Maintainable Implementation
 
-- **MUST** 将改动控制在完成当前任务及必要配套修改的合理范围内。
-- **MUST** 遵循项目既有架构、接口、依赖管理和代码风格。
-- **MUST NOT** 擅自进行无关重构、全仓格式化、批量重命名或大规模依赖升级。
-- **MUST** 在修改公共接口时同步处理必要的调用方、兼容性约束、测试和文档。
-- **SHOULD** 优先选择概念较少、易于理解、容易验证和维护的实现。
-- **SHOULD** 将任务外发现的问题作为遗留事项记录，避免顺手扩大范围。
-- 若最小局部改动会明显破坏正确性、一致性或后续维护，**MUST** 实施必要的完整配套修改，并说明影响范围。
+- **MUST** limit changes to the reasonable scope of the current task and necessary supporting work.
+- **MUST** follow the project's existing architecture, interfaces, dependency management, and code style.
+- **MUST NOT** undertake unrelated refactoring, repository-wide formatting, bulk renaming, or major dependency upgrades without authorization.
+- **MUST** update necessary callers, compatibility constraints, tests, and documentation when changing public interfaces.
+- **SHOULD** favor implementations with fewer concepts that are easy to understand, verify, and maintain.
+- **SHOULD** record issues discovered outside the task as follow-up items rather than expanding the scope opportunistically.
+- If a minimal local change would materially compromise correctness, consistency, or future maintainability, **MUST** implement the necessary complete supporting changes and explain their scope of impact.
 
-## 3. 复用与依赖选择
+## 3. Reuse and Dependency Selection
 
-- **MUST** 优先检查现有实现、标准库及已有依赖。
-- **MUST NOT** 为无明确收益的少量代码随意引入新的生产依赖。
-- **MUST** 在安全敏感领域（例如密码学、认证、授权、协议解析）优先评估成熟、持续维护且适合当前项目的实现或库。
-- 选择新增依赖时，**MUST** 考察维护状态、许可、供应链风险、体积、兼容性和锁文件变化。
-- **MUST NOT** 为追求零依赖而自行实现易出错的安全关键算法或协议。
-- **SHOULD** 避免重复构建项目已有的基础设施。
+- **MUST** check existing implementations, standard libraries, and installed dependencies first.
+- **MUST NOT** introduce a new production dependency for a small amount of code without a clear benefit.
+- **MUST** prioritize evaluation of mature, actively maintained implementations or libraries suitable for the project in security-sensitive areas (such as cryptography, authentication, authorization, and protocol parsing).
+- When adding a dependency, **MUST** evaluate maintenance status, license, supply-chain risks, size, compatibility, and lockfile changes.
+- **MUST NOT** reimplement error-prone, security-critical algorithms or protocols merely to achieve zero dependencies.
+- **SHOULD** avoid rebuilding infrastructure that the project already provides.
 
-## 4. 正确性、安全与工程底线
+## 4. Correctness, Security, and Engineering Baselines
 
-精简只能减少无关复杂度。以下要求属于实现底线：
+Simplification may reduce only unnecessary complexity. The following are non-negotiable implementation baselines:
 
-- **MUST** 保留必要的输入校验、输出编码、授权检查和信任边界保护。
-- **MUST** 保留对数据完整性、并发一致性和外部失败的必要处理。
-- **MUST** 覆盖用户明确要求的正常路径、关键异常路径与重要边界条件。
-- **MUST NOT** 通过静默回退、吞掉错误、虚假占位实现或伪造结果掩盖问题。
-- **MUST NOT** 删除、跳过或弱化已有测试以制造通过结果。
-- **MUST** 尊重 `KEEPSECURED.md` 的安全要求及 `KEEPTIDY.md` 的环境和资源边界。
+- **MUST** preserve necessary input validation, output encoding, authorization checks, and trust-boundary protections.
+- **MUST** preserve necessary handling of data integrity, concurrency consistency, and external failures.
+- **MUST** cover normal flows explicitly requested by the user, critical failure paths, and important edge cases.
+- **MUST NOT** conceal problems through silent fallbacks, swallowed errors, fake placeholder implementations, or fabricated results.
+- **MUST NOT** remove, skip, or weaken existing tests to manufacture passing results.
+- **MUST** respect the security requirements in `KEEPSECURED.md` and the environment and resource boundaries in `KEEPTIDY.md`.
 
-## 5. 验证策略
+## 5. Verification Strategy
 
-- **MUST** 根据改动影响执行适当的格式检查、静态分析及相关测试；受环境限制的验证应明确列出。
-- **MUST** 如实说明实际执行的命令、结果和未验证范围。
-- **SHOULD** 优先执行受影响范围内的测试，再按变更风险扩展回归范围。
-- **SHOULD** 对分支判断、循环、数据转换、权限、持久化和外部副作用等非平凡逻辑提供最小有效验证。
-- **SHOULD** 优先复用既有测试基础设施，避免为一次性校验新增复杂工具链。
+- **MUST** run appropriate formatting checks, static analysis, and relevant tests based on the impact of the change; explicitly identify verification blocked by environmental constraints.
+- **MUST** accurately report the commands actually run, their results, and any unverified scope.
+- **SHOULD** test the affected scope first, then expand regression coverage according to change risk.
+- **SHOULD** provide minimal effective verification for nontrivial logic involving branching, loops, data transformations, permissions, persistence, or external side effects.
+- **SHOULD** reuse existing testing infrastructure instead of adding a complex toolchain for a one-off check.
 
-## 6. 有意简化与例外
+## 6. Intentional Simplifications and Exceptions
 
-- 当实现存在明确的规模上限、性能阈值或已知失效条件时，**SHOULD** 在相关位置或现有设计说明中记录该边界以及触发升级的条件。
-- **MUST** 把对外行为、性能、安全性或兼容性产生实质影响的简化告知用户。
-- **SHOULD** 避免对普通、显而易见的代码添加重复性技术债注释。
-- 如需超出原定改动范围，**MUST** 先判断是否属于完成任务所必需的配套工作；重大范围扩展应取得相应授权。
+- When an implementation has a defined scale limit, performance threshold, or known failure condition, **SHOULD** document that boundary and the conditions that would trigger an upgrade near the relevant code or in existing design documentation.
+- **MUST** disclose simplifications that materially affect externally observable behavior, performance, security, or compatibility.
+- **SHOULD** avoid repetitive technical-debt comments on ordinary, self-evident code.
+- When work outside the original scope becomes necessary, **MUST** first determine whether it is essential supporting work for the task; significant scope expansions require appropriate authorization.
 
-## 7. 交付检查
+## 7. Delivery Checklist
 
-- [ ] 已确认任务必要性并检查现有复用路径。
-- [ ] 已采用满足安全、正确性和可维护性的最小合理实现。
-- [ ] 无未授权的无关重构、依赖升级或功能扩张。
-- [ ] 必要的测试已执行；未执行部分及原因已说明。
-- [ ] 已知简化边界和重要取舍已按影响程度披露。
+- [ ] Confirmed the task's necessity and reviewed existing opportunities for reuse.
+- [ ] Used the smallest reasonable implementation that satisfies security, correctness, and maintainability requirements.
+- [ ] Made no unauthorized unrelated refactors, dependency upgrades, or feature expansions.
+- [ ] Ran necessary tests and disclosed any unexecuted checks and reasons.
+- [ ] Disclosed known simplification boundaries and important trade-offs in proportion to their impact.
 
-最终交付应聚焦**完成了什么、如何验证、还存在哪些实际限制**。常规小任务无需附加冗长的决策过程。
+Final delivery should focus on **what was completed, how it was verified, and which practical limitations remain**. Routine small tasks do not require a lengthy account of the decision-making process.
