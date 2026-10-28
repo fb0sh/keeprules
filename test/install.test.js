@@ -474,6 +474,282 @@ test('a misspelled opt-in step is rejected instead of silently ignored', () => {
   });
 });
 
+// ── Notes a rule injects into its AGENTS.md section ─────────────────────────
+
+/** A rule whose body declares the region the agents step injects. */
+function notedRule({ file = 'RULE.md', name = 'RULE', notes = [], postInstall = ['agents'] }) {
+  const content = [
+    `# ${name}`,
+    '',
+    '<!-- keeprules:agents -->',
+    ...notes,
+    '<!-- /keeprules:agents -->',
+    '',
+  ].join('\n');
+
+  return { id: name.toLowerCase(), description: '', file, name, content, postInstall };
+}
+
+const SECTION_LINK = 'Follow the RULE rules defined in [rules/RULE.md](./rules/RULE.md).';
+
+test('a marked region is rendered after the heading and its link', () => {
+  projectWith(({ project }) => {
+    const rule = notedRule({ notes: ['### Issue capture', '- Refine the description.'] });
+
+    installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    const agents = read(project, 'AGENTS.md');
+    const link = agents.indexOf(SECTION_LINK);
+    const notesAt = agents.indexOf('### Issue capture');
+
+    assert.ok(link !== -1, 'the generated link is kept');
+    assert.ok(notesAt > link, 'the injected lines follow the link');
+    assert.ok(agents.includes('- Refine the description.'));
+    assert.equal(agents.split('<!-- keeprules:start -->').length - 1, 1, 'one block');
+  });
+});
+
+test('a rule without a region keeps the one-line section', () => {
+  projectWith(({ sourceDir, project }) => {
+    const rule = ruleFixture(sourceDir, {
+      file: 'RULE.md',
+      name: 'RULE',
+      postInstall: ['agents'],
+    });
+
+    installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    assert.ok(
+      read(project, 'AGENTS.md').includes(`${SECTION_LINK}\n\nThese rules are mandatory`),
+      'nothing is injected between the link and the footer',
+    );
+  });
+});
+
+test('an empty region is the same as no region', () => {
+  projectWith(({ project }) => {
+    const rule = notedRule({ notes: ['', ''] });
+
+    const report = installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    assert.deepEqual(report.failures, []);
+    assert.ok(read(project, 'AGENTS.md').includes(`${SECTION_LINK}\n\nThese rules`));
+  });
+});
+
+test('spacing inside the markers does not matter', () => {
+  projectWith(({ project }) => {
+    const rule = {
+      ...notedRule({}),
+      content: [
+        '# RULE',
+        '',
+        '<!--keeprules:agents -->',
+        '- Tight marker.',
+        '<!--  /keeprules:agents-->',
+        '',
+      ].join('\n'),
+    };
+
+    installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    assert.ok(read(project, 'AGENTS.md').includes('- Tight marker.'));
+  });
+});
+
+test('a malformed region is refused even without the agents step', () => {
+  projectWith(({ project }) => {
+    const rule = {
+      id: 'rule',
+      description: '',
+      file: 'RULE.md',
+      name: 'RULE',
+      content: [
+        '# RULE',
+        '<!-- keeprules:agents -->',
+        '## Too deep',
+        '<!-- /keeprules:agents -->',
+        '',
+      ].join('\n'),
+      postInstall: [],
+    };
+
+    const report = installSelection({ rules: [rule], cwd: project });
+
+    assert.equal(report.failures.length, 1);
+    assert.match(report.failures[0].message, /不能包含一级或二级标题/);
+    assert.equal(exists(project, 'rules/RULE.md'), false, 'nothing was written');
+  });
+});
+
+test('notes are written whenever the block lists the rule', () => {
+  projectWith(({ sourceDir, project }) => {
+    // A rule that never declares the step still lands in the block when another
+    // selected rule asks for it, so its notes are rendered too.
+    const noted = { ...notedRule({ notes: ['- Noted line.'] }), postInstall: [] };
+    const trigger = ruleFixture(sourceDir, {
+      file: 'TRIGGER.md',
+      name: 'TRIGGER',
+      postInstall: ['agents'],
+    });
+
+    installSelection({ rules: [noted, trigger], cwd: project, confirmed: ['agents'] });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.ok(agents.includes('- Noted line.'));
+    assert.ok(agents.includes('[rules/RULE.md](./rules/RULE.md)'));
+  });
+});
+
+test('the injected lines keep the file line-ending convention', () => {
+  projectWith(({ project }) => {
+    writeFileSync(path.join(project, 'AGENTS.md'), '# Mine\r\n');
+
+    installSelection({
+      rules: [notedRule({ notes: ['### Issue capture', '- CRLF line.'] })],
+      cwd: project,
+      confirmed: ['agents'],
+    });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.ok(agents.includes('### Issue capture\r\n- CRLF line.\r\n'));
+    assert.equal(agents.replace(/\r\n/g, '').includes('\n'), false, 'no bare LF');
+  });
+});
+
+test('a rule with notes is not rewritten on the next run', () => {
+  projectWith(({ project }) => {
+    const rule = notedRule({ notes: ['### Issue capture', '- Stable line.'] });
+    const agentsPath = path.join(project, 'AGENTS.md');
+
+    installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(agentsPath, old, old);
+    const agentsTime = statSync(agentsPath).mtimeMs;
+
+    const again = installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    assert.deepEqual(again.failures, []);
+    assert.ok(again.outcomes.every((outcome) => outcome.level === 'info'));
+    assert.equal(statSync(agentsPath).mtimeMs, agentsTime, 'AGENTS.md was not rewritten');
+    assert.equal(
+      read(project, 'AGENTS.md').split('- Stable line.').length - 1,
+      1,
+      'the lines are not duplicated',
+    );
+  });
+});
+
+test('updated notes replace the previous ones', () => {
+  projectWith(({ project }) => {
+    installSelection({
+      rules: [notedRule({ notes: ['- First wording.'] })],
+      cwd: project,
+      confirmed: ['agents'],
+    });
+    installSelection({
+      rules: [notedRule({ notes: ['- Second wording.'] })],
+      cwd: project,
+      confirmed: ['agents'],
+    });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.ok(agents.includes('- Second wording.'));
+    assert.equal(agents.includes('- First wording.'), false, 'no stale line survives');
+    assert.equal(agents.split('<!-- keeprules:start -->').length - 1, 1, 'one block');
+  });
+});
+
+test('removing the region removes the injected lines', () => {
+  projectWith(({ sourceDir, project }) => {
+    installSelection({
+      rules: [notedRule({ notes: ['- Temporary line.'] })],
+      cwd: project,
+      confirmed: ['agents'],
+    });
+
+    const plain = ruleFixture(sourceDir, {
+      file: 'RULE.md',
+      name: 'RULE',
+      postInstall: ['agents'],
+    });
+    installSelection({ rules: [plain], cwd: project, confirmed: ['agents'] });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.equal(agents.includes('- Temporary line.'), false, 'no residue');
+    assert.ok(agents.includes(SECTION_LINK), 'the reference stays');
+  });
+});
+
+test('notes and other rules keep their own sections', () => {
+  projectWith(({ sourceDir, project }) => {
+    const noted = notedRule({ notes: ['- Noted line.'] });
+    const other = ruleFixture(sourceDir, {
+      file: 'OTHER.md',
+      name: 'OTHER',
+      postInstall: ['agents'],
+    });
+
+    installSelection({ rules: [noted, other], cwd: project, confirmed: ['agents'] });
+
+    const agents = read(project, 'AGENTS.md');
+    assert.ok(agents.includes('[rules/OTHER.md](./rules/OTHER.md)'));
+    assert.ok(agents.includes('- Noted line.'));
+    assert.equal(agents.split('\n## ').length - 1, 2, 'two sections');
+  });
+});
+
+for (const [label, notes, pattern] of [
+  ['a level-2 heading', ['## Too deep', '- line'], /不能包含一级或二级标题/],
+  ['a level-1 heading', ['# Too deep'], /不能包含一级或二级标题/],
+  ['an unterminated region', null, /缺少结束标记/],
+  ['a block marker', ['- <!-- keeprules:start -->'], /keeprules 的块标记/],
+  ['too many lines', Array.from({ length: 41 }, (_, i) => `- line ${i}`), /最多 40 行/],
+  ['too many characters', ['- ' + 'x'.repeat(2001)], /最多 2000 字符/],
+]) {
+  test(`${label} in the region is refused before any write`, () => {
+    projectWith(({ project }) => {
+      const rule = notes
+        ? notedRule({ notes })
+        : {
+            ...notedRule({}),
+            content: '# RULE\n\n<!-- keeprules:agents -->\n- dangling\n',
+          };
+
+      const report = installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+      assert.equal(report.failures.length, 1);
+      assert.match(report.failures[0].message, pattern);
+      assert.equal(exists(project, 'rules/RULE.md'), false, 'no rule file was written');
+      assert.equal(exists(project, 'AGENTS.md'), false, 'AGENTS.md was not touched');
+    });
+  });
+}
+
+test('a rule may declare only one region', () => {
+  projectWith(({ project }) => {
+    const rule = {
+      ...notedRule({ notes: ['- first'] }),
+      content: [
+        '# RULE',
+        '<!-- keeprules:agents -->',
+        '- first',
+        '<!-- /keeprules:agents -->',
+        '<!-- keeprules:agents -->',
+        '- second',
+        '<!-- /keeprules:agents -->',
+        '',
+      ].join('\n'),
+    };
+
+    const report = installSelection({ rules: [rule], cwd: project, confirmed: ['agents'] });
+
+    assert.equal(report.failures.length, 1);
+    assert.match(report.failures[0].message, /只能有一个标记区/);
+  });
+});
+
 // ── Preflight validation and path safety ────────────────────────────────────
 
 const canRestrictDirectory =

@@ -120,6 +120,21 @@ The marked region in `AGENTS.md` (`<!-- keeprules:start -->` /
 place on every run: rules referenced by an earlier run are preserved, and
 root-level links written by keeprules 0.1.1 are corrected to `rules/<file>`.
 
+## Rule notes
+
+The optional lines a rule injects under its own section in the reference
+block, declared in the rule body between `<!-- keeprules:agents -->` and
+`<!-- /keeprules:agents -->`. The installer still owns the heading and the
+link; the region only adds extra constraints, so a rule can keep the behaviour
+that must stay visible — approval before work, say — in the file every agent
+reads first.
+
+Level-1 and level-2 headings are refused: the block is split on `##`, so an
+injected one would survive as a separate section forever. The limits (40 lines,
+2000 characters) keep a third-party rule from bloating `AGENTS.md`, and a
+malformed region fails the batch before any file is written. The flow previews
+the lines before the final confirmation.
+
 ## Prompt outcome
 
 Every interactive question ends one of three ways, and the seam normalizes the

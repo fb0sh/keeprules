@@ -48,7 +48,8 @@ project/
 ├── AGENTS.md          # 引用 rules/ 下的规则（可选）
 ├── rules/
 │   ├── KEEPTIDY.md
-│   └── KEEPSECURED.md
+│   ├── KEEPSECURED.md
+│   └── KEEPTRACK.md
 ├── .gitignore
 └── ...
 ```
@@ -72,6 +73,7 @@ project/
 | `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（必要性判断、复用优先、最小可维护改动、安全与正确性边界） |
 | `KEEPTIDY` | `rules/KEEPTIDY.md` | 工程卫生与资源管理（项目级 tmp、任务隔离、资源回收、Git 安全、进程管理） |
 | `KEEPSECURED` | `rules/KEEPSECURED.md` | 安全与敏感信息保护（凭证与隐私、外部通信、权限边界、生产环境和高风险操作） |
+| `KEEPTRACK` | `rules/KEEPTRACK.md` | 跨会话问题跟踪（提问澄清后记录到 `docs/agent-issues/`、记录与执行分别授权、显式批准后才动手） |
 
 新增规则只需要往仓库 `rules/` 里加一个 `.md` 文件，**不需要更新清单，也不需要发版**。
 
@@ -95,6 +97,33 @@ These rules are mandatory for all Coding Agents working in this repository.
 ```
 
 再次运行时会复用同一个区块并合并内容：之前已引用的规则会保留，指向旧路径（例如根目录的 `KEEPTIDY.md`）的链接会被修正为 `rules/KEEPTIDY.md`。
+
+### 向 `AGENTS.md` 注入核心约束
+
+规则可以在正文里声明一段要跟着引用一起写进 `AGENTS.md` 的内容，用一对 HTML 注释标记：
+
+```markdown
+<!-- keeprules:agents -->
+### Issue capture
+
+- Refine and clarify the user's description.
+
+### Issue execution
+
+- ALWAYS ask for explicit approval before starting work.
+<!-- /keeprules:agents -->
+```
+
+安装时这段内容渲染在 `## 规则名` 和链接行之后；没有这段标记的规则行为不变，仍然只有标题和链接。
+
+约束：
+
+- 每个规则最多一个标记区，标记必须成对；空标记区等同于没有。
+- 允许 `###` 及更深的标题，**不允许 `#` / `##` 标题**——引用块按 `##` 切分，注入的二级标题会被当成另一条规则的小节永久保留。
+- 最多 40 行、2000 字符，且不能包含 `keeprules` 自己的块标记。
+- 标记区格式错误时，整批安装会在写入任何文件之前失败，`AGENTS.md` 保持原样（不论这条规则是否声明 `agents` 步骤）。
+- 注入内容随规则一起被远程覆盖：改规则、删标记、重跑都会同步到已选规则的区块，不残留旧行。
+- 确认安装前会先列出即将注入的内容（「AGENTS.md 将追加的核心约束」），第三方仓库的规则也能先审再装。
 
 ### 从第三方仓库安装
 
@@ -149,6 +178,8 @@ postInstall:
 - `name`：显示名称
 - `description`：选择界面里的说明
 - `postInstall`：可选，目前只有 `gitignore` 和 `agents`
+
+正文里用 `<!-- keeprules:agents -->` … `<!-- /keeprules:agents -->` 包住的内容，会随 `agents` 步骤写进 `AGENTS.md`（见[向 `AGENTS.md` 注入核心约束](#向-agentsmd-注入核心约束)）。
 
 没有 frontmatter 也能用：`id` / `name` 取文件名，`description` 取正文第一行。
 
@@ -234,6 +265,7 @@ src/remote.js      解析来源；API raw 优先，失败回退 git clone 并读
 | 规则装到哪个目录 | `src/install.js` 的 `RULES_DIR`（唯一一处） |
 | 默认规则从哪里拉 | `src/remote.js` 的 `DEFAULT_SOURCE` / `DEFAULT_BRANCH` |
 | `AGENTS.md` 引用块的格式 | `src/install.js` 的 `renderBlock` / `renderSection` |
+| 规则注入 `AGENTS.md` 的标记区与上限 | `src/install.js` 的 `agentsNotes`（`NOTES_MAX_LINES` / `NOTES_MAX_CHARS`） |
 | 加一个步骤 | `src/install.js` 的 `STEPS` 加一项 + 写一个函数 |
 | 打印样式 | `bin/keeprules.js` 的 `printer` |
 | 选择器交互 | `src/picker.js` |

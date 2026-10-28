@@ -106,10 +106,116 @@ const AGENTS_END = '<!-- keeprules:end -->';
 const AGENTS_FOOTER =
   'These rules are mandatory for all Coding Agents working in this repository.';
 
+// ── notes a rule may inject into its section ────────────────────────────────
+
+/**
+ * A rule may declare extra constraints for `AGENTS.md` inside a marked region
+ * of its Markdown body:
+ *
+ *   <!-- keeprules:agents -->
+ *   ### Issue capture
+ *   - Refine and clarify the user's description.
+ *   <!-- /keeprules:agents -->
+ *
+ * The heading and link stay the installer's; the region only adds lines under
+ * them. Level-1 and level-2 headings are refused because `splitSections` splits
+ * the block on `##`: an injected one would survive as a separate section on
+ * every later run. The size limits keep a bad third-party rule from bloating
+ * `AGENTS.md`.
+ */
+const NOTES_OPEN = '<!-- keeprules:agents -->';
+const NOTES_CLOSE = '<!-- /keeprules:agents -->';
+const NOTES_MAX_LINES = 40;
+const NOTES_MAX_CHARS = 2000;
+
+/** Marker comparison ignores spacing, so `<!--keeprules:agents-->` counts too. */
+const compact = (line) => line.replace(/\s+/g, '');
+
+/**
+ * The lines a rule injects into its `AGENTS.md` section.
+ *
+ * @param {string} content the rule's Markdown
+ * @param {string} source what to name in an error, e.g. `规则 KEEPTRACK.md`
+ * @returns {string[]} validated lines, empty when the rule declares no region
+ * @throws {Error} when the region is malformed, unsafe, or too large
+ */
+export function agentsNotes(content, source) {
+  const notes = [];
+  let open = false;
+  let regions = 0;
+
+  for (const raw of String(content ?? '').split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    const key = compact(line);
+
+    if (key === compact(NOTES_OPEN)) {
+      if (open) throw new Error(`${source}: 标记区不能嵌套`);
+      if (regions > 0) throw new Error(`${source}: 只能有一个标记区（${NOTES_OPEN}）`);
+      open = true;
+      regions += 1;
+      continue;
+    }
+
+    if (key === compact(NOTES_CLOSE)) {
+      if (!open) throw new Error(`${source}: 结束标记 ${NOTES_CLOSE} 缺少对应的开始标记`);
+      open = false;
+      continue;
+    }
+
+    if (open) notes.push(line);
+  }
+
+  if (open) throw new Error(`${source}: 标记区缺少结束标记 ${NOTES_CLOSE}`);
+
+  while (notes.length > 0 && notes[0] === '') notes.shift();
+  while (notes.length > 0 && notes[notes.length - 1] === '') notes.pop();
+
+  if (notes.length === 0) return [];
+
+  for (const note of notes) {
+    if (/^#{1,2}(?:\s|$)/.test(note)) {
+      throw new Error(
+        `${source}: 标记区不能包含一级或二级标题（"${note}"）；请改用 ###`,
+      );
+    }
+
+    if (compact(note).includes('keeprules:')) {
+      throw new Error(
+        `${source}: 标记区不能包含 keeprules 的块标记（"${note}"）`,
+      );
+    }
+  }
+
+  if (notes.length > NOTES_MAX_LINES) {
+    throw new Error(
+      `${source}: 标记区最多 ${NOTES_MAX_LINES} 行，实际 ${notes.length} 行`,
+    );
+  }
+
+  const size = notes.join('\n').length;
+
+  if (size > NOTES_MAX_CHARS) {
+    throw new Error(
+      `${source}: 标记区最多 ${NOTES_MAX_CHARS} 字符，实际 ${size} 字符`,
+    );
+  }
+
+  return notes;
+}
+
 /** One `## NAME` section pointing at the installed rule file. */
 function renderSection(rule) {
   const target = ruleTargetPath(rule);
-  return `## ${rule.name}\n\nFollow the ${rule.name} rules defined in [${target}](./${target}).`;
+  const notes = agentsNotes(rule.content, `规则 ${rule.file}`);
+  const lines = [
+    `## ${rule.name}`,
+    '',
+    `Follow the ${rule.name} rules defined in [${target}](./${target}).`,
+  ];
+
+  if (notes.length > 0) lines.push('', ...notes);
+
+  return lines.join('\n');
 }
 
 /** The whole marked block, for these rules plus any preserved sections. */
@@ -427,6 +533,10 @@ function validateRules(rules) {
       if (rule.content.trim() === '') {
         throw new Error(`规则内容为空: ${rule.file}`);
       }
+
+      // A malformed region must fail before the first write, not while the
+      // block is being rendered into AGENTS.md.
+      agentsNotes(rule.content, `规则 ${rule.file}`);
 
       valid.push(rule);
     } catch (error) {

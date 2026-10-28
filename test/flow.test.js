@@ -19,6 +19,20 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP_ROOT = path.join(ROOT, 'tmp', 'runs');
 
 /**
+ * ALPHA's body, including the region it injects into AGENTS.md. Named because
+ * one test asserts the file that landed on disk is this content, byte for byte.
+ */
+const ALPHA_CONTENT = [
+  '# ALPHA',
+  '',
+  '<!-- keeprules:agents -->',
+  '### Scope',
+  '- Stay inside the task.',
+  '<!-- /keeprules:agents -->',
+  '',
+].join('\n');
+
+/**
  * A scratch project with two rules on disk, one of which declares opt-in
  * steps. The flow is driven against the real install module, so these tests
  * assert files that actually landed.
@@ -35,7 +49,7 @@ async function withProject(fn) {
       name: 'ALPHA',
       description: 'Alpha rule',
       file: 'ALPHA.md',
-      content: '# ALPHA\n',
+      content: ALPHA_CONTENT,
       postInstall: ['gitignore', 'agents'],
     },
     {
@@ -130,7 +144,7 @@ test('a confirmed install copies the rule and writes both blocks', async () => {
     });
 
     assert.equal(result, RESULT.installed);
-    assert.equal(readFileSync(path.join(project, 'rules/ALPHA.md'), 'utf8'), '# ALPHA\n');
+    assert.equal(readFileSync(path.join(project, 'rules/ALPHA.md'), 'utf8'), ALPHA_CONTENT);
     assert.match(readFileSync(path.join(project, 'AGENTS.md'), 'utf8'), /rules\/ALPHA\.md/);
     assert.match(readFileSync(path.join(project, '.gitignore'), 'utf8'), /\/tmp\//);
 
@@ -191,6 +205,60 @@ test('a rule with no opt-in steps is only asked for the final confirmation', asy
 
     assert.equal(result, RESULT.installed);
     assert.equal(asked.length, 1, 'no step question for a rule without steps');
+    assert.equal(existsSync(path.join(project, 'AGENTS.md')), false);
+  });
+});
+
+test('the AGENTS.md lines a rule injects are previewed before the install', async () => {
+  withProject(async ({ project, rules }) => {
+    const { out } = await run({ rules, project, script: [['alpha'], true, true] });
+
+    const injected = out.calls
+      .filter(([name]) => name === 'note')
+      .map(([, note]) => note)
+      .find((note) => note.title === 'AGENTS.md 将追加的核心约束');
+
+    assert.ok(injected, 'the injected content is shown');
+    assert.ok(injected.lines.some((line) => line.includes('Stay inside the task')));
+  });
+});
+
+test('declining the agents step hides the injected preview', async () => {
+  withProject(async ({ project, rules }) => {
+    const { out } = await run({ rules, project, script: [['alpha'], false, true] });
+
+    const titles = out.calls
+      .filter(([name]) => name === 'note')
+      .map(([, note]) => note.title);
+
+    assert.deepEqual(titles, ['即将安装']);
+  });
+});
+
+test('a malformed region is explained in the preview instead of crashing', async () => {
+  withProject(async ({ project, rules }) => {
+    const broken = rules.map((rule) =>
+      rule.id === 'alpha'
+        ? {
+            ...rule,
+            content: '# ALPHA\n\n<!-- keeprules:agents -->\n## Too deep\n<!-- /keeprules:agents -->\n',
+          }
+        : rule,
+    );
+
+    const { result, out } = await run({
+      rules: broken,
+      project,
+      script: [['alpha'], true, true],
+    });
+
+    const injected = out.calls
+      .filter(([name]) => name === 'note')
+      .map(([, note]) => note)
+      .find((note) => note.title === 'AGENTS.md 将追加的核心约束');
+
+    assert.ok(injected.lines.some((line) => line.includes('不能包含一级或二级标题')));
+    assert.equal(result, RESULT.failed);
     assert.equal(existsSync(path.join(project, 'AGENTS.md')), false);
   });
 });

@@ -10,6 +10,7 @@
  */
 
 import {
+  agentsNotes,
   installSelection,
   promptSteps,
   ruleTargetPath,
@@ -78,6 +79,30 @@ export async function runFlow({ rules, cwd, prompts, out }) {
     selected.map((rule) => `${rule.name} → ${ruleTargetPath(rule)}`),
     '即将安装',
   );
+
+  // The agents step rewrites AGENTS.md. Show the lines rules inject there, so a
+  // third-party rule's text is reviewed before the install rather than after.
+  if (confirmed.includes('agents')) {
+    const injected = selected.flatMap((rule) => {
+      try {
+        const notes = agentsNotes(rule.content, `规则 ${rule.file}`);
+
+        return notes.length === 0
+          ? []
+          : [
+              `${rule.name}:`,
+              ...notes.map((line) => (line === '' ? '' : `  ${line}`)),
+            ];
+      } catch (error) {
+        // The message already names the rule file; the install will fail on it.
+        return [error.message];
+      }
+    });
+
+    if (injected.length > 0) {
+      out.note(injected, 'AGENTS.md 将追加的核心约束');
+    }
+  }
 
   const go = await prompts.confirm({
     message: `确认安装以上 ${selected.length} 个规则？`,
