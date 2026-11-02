@@ -47,6 +47,11 @@ If the project itself is located under the system `/tmp/`, **MUST** stop file op
 - **MUST** prefer tools and execution methods that allow the temporary directory to be configured.
 - If a step cannot be redirected and requires the Agent to actively operate on system `/tmp/`, **MUST** stop that step and report the blocker.
 - **MUST NOT** empty the system `/tmp/` or perform global temporary-directory cleanup in response to an error.
+- **MUST** enforce project-local temporary storage throughout the entire current conversation, including all Agent actions, tool calls, shell commands, scripts, builds, tests, and delegated Subagent operations.
+- **MUST** place every controllable temporary file, directory, cache, log, and intermediate artifact exclusively under `PROJECT_ROOT/tmp/` (`./tmp/` from the project root).
+- **MUST NOT** use, create, read, write, or delete anything under the system `/tmp/` directory during the current conversation.
+- **MUST** configure and verify temporary storage paths before executing any command or launching any subprocess. These requirements remain in effect across all tasks and tool invocations within the conversation.
+- **MUST** stop the affected operation and report the blocker whenever compliance cannot be guaranteed.
 
 These rules govern filesystem operations actively initiated by the Agent or configurable by it. Accurately disclose limitations involving uncontrollable internal behavior of the operating system, existing services, or third-party tools.
 
@@ -589,4 +594,16 @@ The `agents` step injects the marked region below into the project's `AGENTS.md`
 - Isolate task resources and reuse compatible project caches.
 - Protect user changes, active services, databases, and Git Worktrees.
 - Clean up only verified task-owned resources that are no longer needed.
+- Before executing any subprocess, establish a
+  verified project-local temporary directory.
+- All controllable subprocesses MUST inherit
+  TMPDIR, TMP, and TEMP pointing to that directory.
+- Configure tool-specific cache and temporary
+  output paths when supported.
+- Validate subprocess environment configuration
+  before execution.
+- When a tool requires system /tmp, use an
+  authorized filesystem sandbox or stop and report.
+- Apply the same execution constraints to all
+  Subagents.
 <!-- /keeprules:agents -->
