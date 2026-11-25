@@ -135,7 +135,7 @@ const compact = (line) => line.replace(/\s+/g, '');
  * The lines a rule injects into its `AGENTS.md` section.
  *
  * @param {string} content the rule's Markdown
- * @param {string} source what to name in an error, e.g. `规则 KEEPTRACK.md`
+ * @param {string} source what to name in an error, e.g. `规则 KEEPLEAN.md`
  * @returns {string[]} validated lines, empty when the rule declares no region
  * @throws {Error} when the region is malformed, unsafe, or too large
  */

@@ -47,9 +47,9 @@ npx keeprules add user/repo#branch
 project/
 ├── AGENTS.md          # 引用 rules/ 下的规则（可选）
 ├── rules/
+│   ├── KEEPLEAN.md
 │   ├── KEEPTIDY.md
-│   ├── KEEPSECURED.md
-│   └── KEEPTRACK.md
+│   └── KEEPSECURED.md
 ├── .gitignore
 └── ...
 ```
@@ -70,10 +70,9 @@ project/
 
 | 规则 | 安装路径 | 说明 |
 | --- | --- | --- |
-| `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（必要性判断、复用优先、最小可维护改动、安全与正确性边界） |
+| `KEEPLEAN` | `rules/KEEPLEAN.md` | 精简变更（先澄清假设与歧义、必要性判断、复用优先、最小可维护改动、逐行追溯、目标驱动验证、安全与正确性边界） |
 | `KEEPTIDY` | `rules/KEEPTIDY.md` | 工程卫生与资源管理（项目级 tmp、任务隔离、资源回收、Git 安全、进程管理） |
 | `KEEPSECURED` | `rules/KEEPSECURED.md` | 安全与敏感信息保护（凭证与隐私、外部通信、权限边界、生产环境和高风险操作） |
-| `KEEPTRACK` | `rules/KEEPTRACK.md` | 跨会话问题跟踪（提问澄清后记录到 `docs/agent-issues/`、记录与执行分别授权、显式批准后才动手） |
 
 新增规则只需要往仓库 `rules/` 里加一个 `.md` 文件，**不需要更新清单，也不需要发版**。
 

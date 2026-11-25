@@ -5,11 +5,13 @@ Follow the KEEPLEAN rules defined in [rules/KEEPLEAN.md](./rules/KEEPLEAN.md).
 
 ### Minimal-change principles
 
+- State assumptions and ambiguities before coding; never silently pick an interpretation.
 - Assess necessity and reuse existing code before adding new implementations or dependencies.
 - Prefer the smallest correct, secure, and maintainable change.
-- Avoid unrelated refactoring, premature abstractions, and unnecessary dependencies.
+- Avoid unrelated refactoring, premature abstractions, and unrequested features or configuration.
+- Trace every changed line to the request; clean up only orphans your own change created.
 - Preserve essential validation, error handling, and security checks.
-- Run relevant tests and report actual verification results.
+- Convert the task into a checkable goal, run relevant tests, and report actual verification results.
 
 ## KEEPSECURED
 
@@ -34,25 +36,18 @@ Follow the KEEPTIDY rules defined in [rules/KEEPTIDY.md](./rules/KEEPTIDY.md).
 - Isolate task resources and reuse compatible project caches.
 - Protect user changes, active services, databases, and Git Worktrees.
 - Clean up only verified task-owned resources that are no longer needed.
-
-## KEEPTRACK
-
-Follow the KEEPTRACK rules defined in [rules/KEEPTRACK.md](./rules/KEEPTRACK.md).
-
-### Issue capture
-
-- Refine and clarify the user's description.
-- Show the proposed issue record.
-- Wait for explicit user confirmation before saving.
-- Do not implement or investigate during capture-only tasks.
-
-### Issue execution
-
-- Review pending issues at task boundaries.
-- Present the pending issues to the user.
-- ALWAYS ask for explicit approval before starting work.
-- Never automatically fix an issue merely because it is OPEN.
-- Update issue status only after the corresponding authorization.
+- Before executing any subprocess, establish a
+  verified project-local temporary directory.
+- All controllable subprocesses MUST inherit
+  TMPDIR, TMP, and TEMP pointing to that directory.
+- Configure tool-specific cache and temporary
+  output paths when supported.
+- Validate subprocess environment configuration
+  before execution.
+- When a tool requires system /tmp, use an
+  authorized filesystem sandbox or stop and report.
+- Apply the same execution constraints to all
+  Subagents.
 
 These rules are mandatory for all Coding Agents working in this repository.
 <!-- keeprules:end -->

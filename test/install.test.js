@@ -1191,29 +1191,44 @@ test('updating one rule summary leaves the other sections alone', () => {
   withWorkspace((project) => {
     const rules = shippedRules();
 
+    // Pick the target from the repository instead of naming a rule, so adding
+    // or removing a rule does not break this test. It must be a rule that
+    // injects notes, and its last note must be unique across all rules.
+    const target = rules.find(
+      (rule) => agentsNotes(rule.content, rule.name).length > 0,
+    );
+    assert.ok(target, 'at least one shipped rule injects AGENTS.md notes');
+
+    const notes = agentsNotes(target.content, target.name);
+    const original = notes[notes.length - 1];
+    const replacement = '- Restated by this test to simulate an upstream edit.';
+
+    const collides = rules
+      .filter((rule) => rule.name !== target.name)
+      .flatMap((rule) => agentsNotes(rule.content, rule.name))
+      .some((line) => line === original || line === replacement);
+    assert.equal(collides, false, 'fixture line must be unique to the target');
+
     installSelection({ rules, cwd: project, confirmed: ['agents'] });
 
-    // Pretend KEEPTRACK's summary changed upstream.
     const edited = rules.map((rule) =>
-      rule.name === 'KEEPTRACK'
-        ? {
-            ...rule,
-            content: rule.content.replace(
-              "- Refine and clarify the user's description.",
-              '- Restate the problem in plain terms.',
-            ),
-          }
+      rule.name === target.name
+        ? { ...rule, content: rule.content.replace(original, replacement) }
         : rule,
     );
 
     installSelection({ rules: edited, cwd: project, confirmed: ['agents'] });
 
     const agents = read(project, 'AGENTS.md');
-    assert.ok(agents.includes('- Restate the problem in plain terms.'));
-    assert.equal(agents.includes("- Refine and clarify the user's description."), false);
-    assert.equal(agents.split('## KEEPTRACK\n').length - 1, 1, 'no duplicate section');
+    assert.ok(agents.includes(replacement));
+    assert.equal(agents.includes(original), false);
+    assert.equal(
+      agents.split(`## ${target.name}\n`).length - 1,
+      1,
+      'no duplicate section',
+    );
 
-    for (const rule of rules.filter((entry) => entry.name !== 'KEEPTRACK')) {
+    for (const rule of rules.filter((entry) => entry.name !== target.name)) {
       for (const line of agentsNotes(rule.content, rule.name)) {
         assert.ok(agents.includes(line), `${rule.name} kept: ${line}`);
       }
